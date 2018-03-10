@@ -5,6 +5,7 @@ Also, utility doesn't support games like 'The Ship' that modified their network 
 Query docs: https://developer.valvesoftware.com/wiki/Server_queries
 """
 
+import bz2
 import io
 import socket
 import struct
@@ -56,37 +57,80 @@ class PacketError(Exception):
 
 class GoldsrcQuery:
 
-    def __init__(self, host, port, timeout=10.0):
+    def __init__(self, host, port, engine='goldsrc', timeout=10.0):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.settimeout(timeout)
         self.socket.connect((host, port))
+        self.engine_type = 0 if engine == 'goldsrc' else 1
 
-    # TODO : Source support
+    def __goldsrc_multiple(self, packet):
+        packet_id = packet.read_int()
+        num = packet.read_byte()
+        packets_num = num & 0x0F
+        packets = [0] * packets_num
+
+        index = (num & 0xF0) >> 4
+        packets[index] = packet.read()
+        while 0 in packets:
+            packet = Buffer(self.socket.recv(PACKET_SIZE))
+            header = packet.read_int()
+            if header == SINGLE:
+                raise PacketError('Wrong single packet')
+            packet_id2 = packet.read_int()
+            if packet_id2 != packet_id:
+                raise PacketError('Different packet id\'s')
+            num = packet.read_byte()
+            index = (num & 0xF0) >> 4
+            packets[index] = packet.read()
+        return Buffer(b''.join(packets))
+
+    def __source_multiple(self, packet):
+        # TODO : Take in account 'Size' field
+        print(packet.getvalue())  # TODO : Debug for Source engines
+        packet_id = packet.read_int()
+        packets_num = packet.read_byte()
+        packets = [0] * packets_num
+
+        index = packet.read_byte()
+        if packet_id & 0x80000000 == 0x80000000:
+            payload_size = packet.read_int()
+            crc32 = packet.read_int()
+        packets[index] = packet.read()
+        while 0 in packets:
+            packet = Buffer(self.socket.recv(PACKET_SIZE))
+            header = packet.read_int()
+            if header == SINGLE:
+                raise PacketError('Wrong single packet')
+
+            packet_id2 = packet.read_int()
+            if packet_id2 != packet_id:
+                raise PacketError('Different packet id\'s')
+
+            packets_num = packet.read_byte()
+
+            index = packet.read_byte()
+
+            if packet_id & 0x80000000 == 0x80000000:
+                payload_size = packet.read_int()
+                crc32 = packet.read_int()  # TODO : Unused?
+
+            packets[index] = packet.read()
+        data = b''.join(packets)
+        if packet_id & 0x80000000 == 0x80000000:
+            data = bz2.decompress(data)
+            data_size = len(data)
+            if data_size != payload_size:
+                raise PacketError(
+                    'Wrong size of multi-packet Source response. Got: {}' + data_size + ', expected: ' + payload_size)
+        return Buffer(data)
+
     def read(self):
         packet = Buffer(self.socket.recv(PACKET_SIZE))
         header = packet.read_int()
         if header == SINGLE:
             return packet
         else:
-            packet_id = packet.read_int()
-            num = packet.read_byte()
-            packets_num = num & 0x0F
-            packets = [0] * packets_num
-            index = (num & 0xF0) >> 4
-
-            packets[index] = packet.read()
-            while 0 in packets:
-                packet = Buffer(self.socket.recv(PACKET_SIZE))
-                header = packet.read_int()
-                if header == SINGLE:
-                    raise PacketError('Wrong single packet')
-                packet_id2 = packet.read_int()
-                if packet_id2 != packet_id:
-                    raise PacketError('Different packet id\'s')
-                num = packet.read_byte()
-                index = (num & 0xF0) >> 4
-                packets[index] = packet.read()
-            return Buffer(b''.join(packets))
+            return self.__goldsrc_multiple(packet) if self.engine_type == 0 else self.__source_multiple(packet)
 
     def ping(self):
         raise NotImplementedError('Ping is deprecated. Required new version of function')
@@ -137,20 +181,22 @@ class GoldsrcQuery:
             'vac': bool(response.read_byte()),
             'version': response.read_string()
         }
-        edf = response.read_byte()
-        if edf & 0x80 == 1:
-            result['port'] = response.read_short()
-        if edf & 0x10 == 1:
-            result['steamid'] = response.read_long_long()
-        if edf & 0x40 == 1:
-            result['spectator'] = {
-                'port': response.read_short(),
-                'name': response.read_string()
-            }
-        if edf & 0x20 == 1:
-            result['keywords'] = response.read_string()
-        if edf & 0x01 == 1:
-            result['game_id'] = response.read_long_long()
+        edf = response.read(1)  # Special case if EDF is present
+        if edf != b'':
+            edf = struct.unpack('<B', edf)[0]
+            if edf & 0x80 == 1:
+                result['port'] = response.read_short()
+            if edf & 0x10 == 1:
+                result['steamid'] = response.read_long_long()
+            if edf & 0x40 == 1:
+                result['spectator'] = {
+                    'port': response.read_short(),
+                    'name': response.read_string()
+                }
+            if edf & 0x20 == 1:
+                result['keywords'] = response.read_string()
+            if edf & 0x01 == 1:
+                result['game_id'] = response.read_long_long()
         return result
 
     def a2s_info(self):
