@@ -12,6 +12,8 @@ import struct
 
 PACKET_SIZE = 1400
 SINGLE = -1
+GOLDSRC = 0
+SOURCE = 1
 
 
 def build_packet(packet_type):
@@ -55,13 +57,13 @@ class PacketError(Exception):
     pass
 
 
-class GoldsrcQuery:
+class ValveQuery:
 
-    def __init__(self, host, port, engine='goldsrc', timeout=10.0):
+    def __init__(self, host, port, engine=GOLDSRC, timeout=10.0):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.settimeout(timeout)
         self.socket.connect((host, port))
-        self.engine_type = 0 if engine == 'goldsrc' else 1
+        self.engine_type = engine
 
     def __goldsrc_multiple(self, packet):
         packet_id = packet.read_int()
@@ -86,7 +88,7 @@ class GoldsrcQuery:
 
     def __source_multiple(self, packet):
         # TODO : Take in account 'Size' field
-        print(packet.getvalue())  # TODO : Debug for Source engines
+        # print(packet.getvalue())  # TODO : Debug for Source engines
         packet_id = packet.read_int()
         packets_num = packet.read_byte()
         packets = [0] * packets_num
@@ -121,7 +123,8 @@ class GoldsrcQuery:
             data_size = len(data)
             if data_size != payload_size:
                 raise PacketError(
-                    'Wrong size of multi-packet Source response. Got: {}' + data_size + ', expected: ' + payload_size)
+                    'Wrong size of decompressed response. Got: {}, expected: {} bytes.'.format(data_size, payload_size)
+                )
         return Buffer(data)
 
     def read(self):
@@ -130,7 +133,7 @@ class GoldsrcQuery:
         if header == SINGLE:
             return packet
         else:
-            return self.__goldsrc_multiple(packet) if self.engine_type == 0 else self.__source_multiple(packet)
+            return self.__goldsrc_multiple(packet) if self.engine_type == GOLDSRC else self.__source_multiple(packet)
 
     def ping(self):
         raise NotImplementedError('Ping is deprecated. Required new version of function')

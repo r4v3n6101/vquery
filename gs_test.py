@@ -1,6 +1,6 @@
-from query.gsquery import GoldsrcQuery
+from vquery import *
 
-server = GoldsrcQuery('46.174.52.15', 27333, 'source', 10)
+server = ValveQuery('46.174.48.49', 27201, SOURCE, 1)
 challenge = server.get_challenge()
 
 print(server.a2s_info())
