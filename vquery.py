@@ -52,6 +52,13 @@ class Buffer(io.BytesIO):
     def read_long_long(self):
         return struct.unpack('<Q', self.read(8))[0]
 
+    def empty(self):
+        if self.read(1) == b'':
+            return True
+        else:
+            self.seek(self.tell() - 1)
+            return False
+
 
 class PacketError(Exception):
     pass
@@ -184,9 +191,8 @@ class ValveQuery:
             'vac': bool(response.read_byte()),
             'version': response.read_string()
         }
-        edf = response.read(1)  # Special case if EDF is present
-        if edf != b'':
-            edf = struct.unpack('<B', edf)[0]
+        if not response.empty():
+            edf = response.read_byte()
             if edf & 0x80 == 1:
                 result['port'] = response.read_short()
             if edf & 0x10 == 1:
@@ -225,7 +231,7 @@ class ValveQuery:
             raise PacketError('Wrong header in a2s_player')
         players_num = response.read_byte()
         players = []
-        for i in range(players_num):
+        while not response.empty():  # Players are connecting will be counted, but won't be in response
             players.append({
                 'index': response.read_byte(),
                 'name': response.read_string(),
