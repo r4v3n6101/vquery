@@ -1,7 +1,6 @@
 """
-Utility for querying data from servers ran on goldsrc engine.
-It doesn't support Source engine at all, because multiple packets aren't decompressed with bz2.
-Also, utility doesn't support games like 'The Ship' that modified their network code.
+Utility for querying data from servers ran on goldsrc or source engine.
+Also, utility doesn't support games like 'The Ship' which modified their network code.
 Query docs: https://developer.valvesoftware.com/wiki/Server_queries
 """
 
@@ -9,6 +8,7 @@ import bz2
 import io
 import socket
 import struct
+import time
 
 PACKET_SIZE = 1400
 SINGLE = -1
@@ -94,13 +94,13 @@ class ValveQuery:
         return Buffer(b''.join(packets))
 
     def __source_multiple(self, packet):
-        # TODO : Take in account 'Size' field
-        # print(packet.getvalue())  # TODO : Debug for Source engines
+        """ I couldn't find any server with the Size field in the response, so just it won't be used"""
         packet_id = packet.read_int()
         packets_num = packet.read_byte()
         packets = [0] * packets_num
-
         index = packet.read_byte()
+        payload_size = -1
+
         if packet_id & 0x80000000 == 0x80000000:
             payload_size = packet.read_int()
             crc32 = packet.read_int()
@@ -110,22 +110,17 @@ class ValveQuery:
             header = packet.read_int()
             if header == SINGLE:
                 raise PacketError('Wrong single packet')
-
             packet_id2 = packet.read_int()
             if packet_id2 != packet_id:
                 raise PacketError('Different packet id\'s')
-
             packets_num = packet.read_byte()
-
             index = packet.read_byte()
-
             if packet_id & 0x80000000 == 0x80000000:
                 payload_size = packet.read_int()
-                crc32 = packet.read_int()  # TODO : Unused?
-
+                crc32 = packet.read_int()  # Unused, but we're reading this. For future usages?
             packets[index] = packet.read()
         data = b''.join(packets)
-        if packet_id & 0x80000000 == 0x80000000:
+        if payload_size != -1:
             data = bz2.decompress(data)
             data_size = len(data)
             if data_size != payload_size:
@@ -143,7 +138,10 @@ class ValveQuery:
             return self.__goldsrc_multiple(packet) if self.engine_type == GOLDSRC else self.__source_multiple(packet)
 
     def ping(self):
-        raise NotImplementedError('Ping is deprecated. Required new version of function')
+        before = time.time()
+        self.a2s_info()
+        after = time.time()
+        return int(round((after - before) * 1000))
 
     @staticmethod
     def __old_server_info(response):
@@ -231,7 +229,7 @@ class ValveQuery:
             raise PacketError('Wrong header in a2s_player')
         players_num = response.read_byte()
         players = []
-        while not response.empty():  # Players are connecting will be counted, but won't be in response
+        while not response.empty():  # Players are in connection process will be counted, but won't be in response
             players.append({
                 'index': response.read_byte(),
                 'name': response.read_string(),
