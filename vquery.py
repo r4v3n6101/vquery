@@ -138,6 +138,10 @@ class ValveQuery:
             return self.__goldsrc_multiple(packet) if self.engine_type == GOLDSRC else self.__source_multiple(packet)
 
     def ping(self):
+        """
+        Measure time for a server info request
+        :return: time in ms
+        """
         before = time.time()
         self.a2s_info()
         after = time.time()
@@ -145,6 +149,11 @@ class ValveQuery:
 
     @staticmethod
     def __old_server_info(response):
+        """
+        The method provides the old type of response which is rare nowadays
+        :param response: the payload(s) from response packet(s)
+        :return: server info
+        """
         result = {
             'address': response.read_string(),
             'name': response.read_string(),
@@ -173,6 +182,11 @@ class ValveQuery:
 
     @staticmethod
     def __server_info(response):
+        """
+        The method grabs the server info using modern response rules
+        :param response: the payload(s) from response packet(s)
+        :return: server info
+        """
         result = {
             'protocol': response.read_byte(),
             'name': response.read_string(),
@@ -222,6 +236,11 @@ class ValveQuery:
             return response.read_int()
 
     def a2s_player(self, challenge):
+        """
+        Request the 'a2s_player'
+        :param challenge: challenge number
+        :return: count of players and the players' data if present
+        """
         self.socket.send(build_packet_challenge(ord('U'), challenge))
         response = self.read()
         header = response.read_byte()
