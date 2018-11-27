@@ -8,7 +8,6 @@ import bz2
 import io
 import socket
 import struct
-import time
 
 PACKET_SIZE = 1400
 SINGLE = -1
@@ -136,16 +135,6 @@ class ValveQuery:
             return packet
         else:
             return self.__goldsrc_multiple(packet) if self.engine_type == GOLDSRC else self.__source_multiple(packet)
-
-    def ping(self):
-        """
-        Measure time for a server info request
-        :return: time in ms
-        """
-        before = time.time()
-        self.a2s_info()
-        after = time.time()
-        return int(round((after - before) * 1000))
 
     @staticmethod
     def __old_server_info(response):
@@ -279,3 +268,8 @@ class ValveQuery:
             'size': size,
             'rules': rules
         }
+
+    def __del__(self):
+        self.socket.close()
+
+    # TODO : Clean up code
