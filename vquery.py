@@ -15,18 +15,6 @@ GOLDSRC = 0
 SOURCE = 1
 
 
-def build_packet(packet_type):
-    return struct.pack('<lB', SINGLE, packet_type)
-
-
-def build_packet_challenge(packet_type, challenge):
-    return build_packet(packet_type) + struct.pack('<i', challenge)
-
-
-A2S_INFO_PACKET = build_packet(ord('T')) + b'Source Engine Query\0'
-CHALLENGE_PACKET = build_packet_challenge(ord('U'), -1)
-
-
 class Buffer(io.BytesIO):
 
     def read_string(self):
@@ -55,8 +43,11 @@ class Buffer(io.BytesIO):
         if self.read(1) == b'':
             return True
         else:
-            self.seek(self.tell() - 1)
+            self.rewind(1)
             return False
+
+    def rewind(self, size):
+        self.seek(self.tell() - size)
 
 
 class PacketError(Exception):
@@ -102,7 +93,7 @@ class ValveQuery:
 
         if packet_id & 0x80000000 == 0x80000000:
             payload_size = packet.read_int()
-            crc32 = packet.read_int()
+            packet.read_int()  # crc32
         packets[index] = packet.read()
         while 0 in packets:
             packet = Buffer(self.socket.recv(PACKET_SIZE))
@@ -112,11 +103,11 @@ class ValveQuery:
             packet_id2 = packet.read_int()
             if packet_id2 != packet_id:
                 raise PacketError('Different packet id\'s')
-            packets_num = packet.read_byte()
+            packet.read_byte()  # packets num, already known
             index = packet.read_byte()
             if packet_id & 0x80000000 == 0x80000000:
                 payload_size = packet.read_int()
-                crc32 = packet.read_int()  # Unused, but we're reading this. For future usages?
+                packet.read_int()  # CRC32
             packets[index] = packet.read()
         data = b''.join(packets)
         if payload_size != -1:
@@ -129,12 +120,16 @@ class ValveQuery:
         return Buffer(data)
 
     def read(self):
-        packet = Buffer(self.socket.recv(PACKET_SIZE))
+        raw = self.socket.recv(PACKET_SIZE)
+        packet = Buffer(raw)
         header = packet.read_int()
         if header == SINGLE:
             return packet
         else:
             return self.__goldsrc_multiple(packet) if self.engine_type == GOLDSRC else self.__source_multiple(packet)
+
+    def send(self, header, data):
+        self.socket.send(struct.pack('<lB', SINGLE, header) + data)
 
     @staticmethod
     def __old_server_info(response):
@@ -210,32 +205,29 @@ class ValveQuery:
         return result
 
     def a2s_info(self):
-        self.socket.send(A2S_INFO_PACKET)
+        self.send(ord('T'), b'Source Engine Query\0')
         response = self.read()
         header = response.read_byte()
         return self.__old_server_info(response) if header == ord('m') else self.__server_info(response)
 
-    def get_challenge(self):
-        self.socket.send(CHALLENGE_PACKET)
+    def send_challenge(self, challenge_type):
+        self.send(challenge_type, struct.pack('<i', -1))
         response = self.read()
         header = response.read_byte()
-        if header != ord('A'):
-            raise PacketError('Wrong challenge packet\'s header')
+        if header == ord('A'):
+            challenge = response.read_int()
+            self.send(challenge_type, struct.pack('<i', challenge))
+            response = self.read()
         else:
-            return response.read_int()
+            response.rewind(1)
+        return response
 
-    def a2s_player(self, challenge):
-        """
-        Request the 'a2s_player'
-        :param challenge: challenge number
-        :return: count of players and the players' data if present
-        """
-        self.socket.send(build_packet_challenge(ord('U'), challenge))
-        response = self.read()
+    def a2s_player(self):
+        response = self.send_challenge(ord('U'))
         header = response.read_byte()
         if header != ord('D'):
             raise PacketError('Wrong header in a2s_player')
-        players_num = response.read_byte()
+        response.read_byte()  # Players num
         players = []
         while not response.empty():  # Players are in connection process will be counted, but won't be in response
             players.append({
@@ -244,16 +236,12 @@ class ValveQuery:
                 'score': response.read_int(),
                 'duration': response.read_float()
             })
-        return {
-            'players_num': players_num,
-            'players': players
-        }
+        return players
 
-    def a2s_rules(self, challenge):
-        self.socket.send(build_packet_challenge(ord('V'), challenge))
-        response = self.read()
-        if response.read_int() != -1:  # 4 FF bytes ain't required
-            response.seek(response.tell() - 4)  # ... so we're gonna back to unreaded data
+    def a2s_rules(self):
+        response = self.send_challenge(ord('V'))
+        if response.read_int() != -1:
+            response.rewind(4)
 
         header = response.read_byte()
         if header != ord('E'):
@@ -264,12 +252,7 @@ class ValveQuery:
             key = response.read_string()
             value = response.read_string()
             rules[key] = value
-        return {
-            'size': size,
-            'rules': rules
-        }
+        return rules
 
     def __del__(self):
         self.socket.close()
-
-    # TODO : Clean up code

@@ -11,7 +11,7 @@ goldsrc = False
 
 
 def players_header(players):
-    expand, _ = collapsing_header("Players")
+    expand, _ = collapsing_header("Players ({})".format(len(players)))
     if expand:
         columns(4, "players")
         separator()
@@ -25,7 +25,7 @@ def players_header(players):
             next_column()
             text(player["name"])
             next_column()
-            text(str(player["duration"]))
+            text(time.strftime("%H:%M:%S", time.gmtime(player["duration"])))
             next_column()
             text(str(player["score"]))
             next_column()
@@ -34,7 +34,7 @@ def players_header(players):
 
 
 def rules_header(rules):
-    expand, _ = collapsing_header("Rules")
+    expand, _ = collapsing_header("Rules ({})".format(len(rules)))
 
     if expand:
         columns(2, "rules")
@@ -54,7 +54,13 @@ def rules_header(rules):
 
 
 def info_header(info):
-    pass  # TODO
+    expand, _ = collapsing_header("Info")
+    if expand:
+        text("Game: {}".format(info['game']))
+        text("Name: {}".format(info['name']))
+        text("Map: {}".format(info['map']))
+        text("Players (Bots): {}/{} ({})".format(info['players'], info['max_players'], info['bots']))
+        checkbox("VAC", info['vac'])
 
 
 def server_info(controller):
@@ -82,12 +88,16 @@ def server_setup():
     _, port = input_int('Port', port)
     _, goldsrc = checkbox("GoldSrc", goldsrc)
     if button("Connect"):
-        controller = QueryController(
-            "{}:{}".format(host, port),
-            ValveQuery(host, port, GOLDSRC if goldsrc else SOURCE)
-        )
-        controller.update()
-        controllers.append(controller)
+        try:
+            controller = QueryController(
+                "{}:{}".format(host, port),
+                ValveQuery(host, port, GOLDSRC if goldsrc else SOURCE)
+            )
+            controller.update()
+            controllers.append(controller)
+        except socket.timeout as e:
+            print("Error: {}".format(e))
+
     end()
 
 
@@ -100,20 +110,22 @@ def imgui_loop():
 class QueryController:
     def __init__(self, name, query):
         self._query = query
-        self._info = {}
         self._name = name
+        self._info = {}
         self._players = []
-        self._rules = []
+        self._rules = {}
         self._ping = 0
 
     def update(self):
-        before = time.time()
-        challenge = self._query.get_challenge()
-        self._info = self._query.a2s_info()
-        self._players = self._query.a2s_player(challenge)['players']  # TODO : And what?
-        self._rules = self._query.a2s_rules(challenge)['rules']
-        after = time.time()
-        self._ping = int((after - before) * 1000)  # In ms
+        try:
+            before = time.time()
+            self._info = self._query.a2s_info()
+            self._players = self._query.a2s_player()
+            self._rules = self._query.a2s_rules()
+            after = time.time()
+            self._ping = int((after - before) * 1000)  # In ms
+        except:  # Skip any trouble in updating
+            pass
 
     @property
     def name(self):
