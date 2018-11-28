@@ -8,6 +8,7 @@ controllers = []
 host = "46.174.48.49"
 port = 27201
 goldsrc = False
+uuid = 0  # For similar servers
 
 
 def players_header(players):
@@ -81,7 +82,7 @@ def server_info(controller):
 
 
 def server_setup():
-    global controllers, host, port, goldsrc
+    global controllers, host, port, goldsrc, uuid
 
     begin("Server producer")
     _, host = input_text('Host', host, 256)
@@ -90,11 +91,12 @@ def server_setup():
     if button("Connect"):
         try:
             controller = QueryController(
-                "{}:{}".format(host, port),
+                "{}:{}##{}".format(host, port, uuid),
                 ValveQuery(host, port, GOLDSRC if goldsrc else SOURCE)
             )
             controller.update()
             controllers.append(controller)
+            uuid += 1
         except socket.timeout as e:
             print("Error: {}".format(e))
 
