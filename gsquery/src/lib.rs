@@ -1,6 +1,7 @@
 extern crate byteorder;
 
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::Read;
 use std::{
     io,
     net::{SocketAddr, UdpSocket},
@@ -11,33 +12,40 @@ const PACKET_SIZE: usize = 1400;
 type IOResult<T> = io::Result<T>;
 
 struct Packet {
-    header: i32,
-    id: i32,
-    packet_id: usize,
-    packet_num: usize,
+    unique_id: i32,
+    id: usize,
+    packets_num: usize,
     data: Vec<u8>,
 }
 
 impl Packet {
-    fn parse(packet: Vec<u8>) -> Packet {
-        // TODO : more error processing
-        let header = LittleEndian::read_i32(&packet[0..4]);
+    fn parse(packet: Vec<u8>) -> IOResult<Option<Packet>> {
+        let mut cursor = std::io::Cursor::new(packet);
+        let header = cursor.read_i32::<LittleEndian>()?;
         match header {
-            -1 => Packet {
-                header,
-                id: 0,
-                packet_id: 0,
-                packet_num: 1,
-                data: packet[4..].to_vec(),
-            },
-            -2 => Packet {
-                header,
-                id: LittleEndian::read_i32(&packet[4..8]),
-                packet_id: (packet[8] & 0xF0 >> 4) as usize,
-                packet_num: (packet[8] & 0xF0) as usize,
-                data: packet[9..].to_vec(),
-            },
-            _ => unimplemented!(), // TODO : Result
+            -1 => {
+                let mut data = Vec::new();
+                cursor.read_to_end(&mut data)?;
+                Ok(Some(Packet {
+                    unique_id: 0,
+                    id: 0,
+                    packets_num: 1,
+                    data,
+                }))
+            }
+            -2 => {
+                let id = cursor.read_i32::<LittleEndian>()?;
+                let num = cursor.read_u8()?;
+                let mut data = Vec::new();
+                cursor.read_to_end(&mut data)?;
+                Ok(Some(Packet {
+                    unique_id: id,
+                    id: (num & 0xF0 >> 4) as usize,
+                    packets_num: (num & 0xF0) as usize,
+                    data,
+                }))
+            }
+            _ => Ok(None),
         }
     }
 }
@@ -53,7 +61,7 @@ impl ValveQuery {
         self.0.connect(addr)
     }
 
-    fn read_whole(&self) -> IOResult<Vec<u8>> {
+    fn read_raw(&self) -> IOResult<Vec<u8>> {
         let mut buf = [0; PACKET_SIZE];
         let size = self.0.recv(&mut buf)?;
         Ok(buf[..size].to_vec())
@@ -61,26 +69,21 @@ impl ValveQuery {
 
     fn read(&self) -> IOResult<Vec<u8>> {
         let mut packets: Vec<(usize, Vec<u8>)> = Vec::new();
-        let mut base_num = 1;
-        let mut base_id = 0;
+        let mut num = 1;
+        let mut unique_id = 0;
 
-        while packets.len() < base_num {
-            let packet = self.read_whole()?;
-            let Packet {
-                header,
-                id,
-                packet_id,
-                packet_num,
-                data,
-            } = Packet::parse(packet);
-            if packets.len() == 0 {
-                // First packet is base of id and num data
-                base_id = id;
-                base_num = packet_num;
-            } else if base_id != id || base_num != packet_num || header != -2 {
-                unimplemented!();
+        while packets.len() < num {
+            let raw_packet = self.read_raw()?;
+            if let Some(packet) = Packet::parse(raw_packet)? {
+                if packets.len() == 0 {
+                    // First packet is base of id and num data
+                    unique_id = packet.unique_id;
+                    num = packet.packets_num;
+                } else if unique_id != packet.unique_id || num != packet.packets_num {
+                    continue; // skip wrong packets to catch another one
+                }
+                packets.push((packet.id, packet.data));
             }
-            packets.push((packet_id, data));
         }
 
         packets.sort_by(|(id1, _), (id2, _)| id1.cmp(id2));
