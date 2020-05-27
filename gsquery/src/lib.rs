@@ -112,8 +112,7 @@ impl ValveQuery {
         Ok(answer)
     }
 
-    pub fn a2s_player_challenge(&self) -> IOResult<Option<i32>> {
-        let data: &'static [u8] = b"\xFF\xFF\xFF\xFFV\xFF\xFF\xFF\xFF";
+    fn a2s_challenge(&self, data: &'static [u8]) -> IOResult<Option<i32>> {
         let answer = self.request(data)?;
         let mut cursor = Cursor::new(answer);
         let header = cursor.read_u8()?;
@@ -123,8 +122,23 @@ impl ValveQuery {
         }
     }
 
+    pub fn a2s_player_challenge(&self) -> IOResult<Option<i32>> {
+        self.a2s_challenge(b"\xFF\xFF\xFF\xFFU\xFF\xFF\xFF\xFF")
+    }
+
+    pub fn a2s_rules_challenge(&self) -> IOResult<Option<i32>> {
+        self.a2s_challenge(b"\xFF\xFF\xFF\xFFV\xFF\xFF\xFF\xFF")
+    }
+
     pub fn a2s_player(&self, challenge: i32) -> IOResult<Option<Vec<u8>>> {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, 0x55, 0x0, 0x0, 0x0, 0x0];
+        LittleEndian::write_i32(&mut data[5..9], challenge);
+        let answer = self.request(&data)?;
+        Ok(Some(answer))
+    }
+
+    pub fn a2s_rules(&self, challenge: i32) -> IOResult<Option<Vec<u8>>> {
+        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, 0x56, 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
         Ok(Some(answer))
@@ -154,12 +168,23 @@ mod tests {
     }
 
     #[test]
-    fn a2s_challenge_test() {
+    fn a2s_player_test() {
         let query = ValveQuery::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
         let challenge = query.a2s_player_challenge().unwrap().unwrap();
         let answer = query.a2s_player(challenge).unwrap().unwrap();
+        println!("{}", challenge);
+        println!("{:?}", answer);
+    }
+
+    #[test]
+    fn a2s_rules_test() {
+        let query = ValveQuery::bind("0.0.0.0:27615".parse().unwrap()).unwrap();
+        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
+        query.connect(ADDR.parse().unwrap()).unwrap();
+        let challenge = query.a2s_rules_challenge().unwrap().unwrap();
+        let answer = query.a2s_rules(challenge).unwrap().unwrap();
         println!("{}", challenge);
         println!("{:?}", answer);
     }
