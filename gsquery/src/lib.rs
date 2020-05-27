@@ -1,7 +1,9 @@
 extern crate byteorder;
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use std::io::Cursor;
 use std::io::Read;
+use std::time::Duration;
 use std::{
     io,
     net::{SocketAddr, UdpSocket},
@@ -20,7 +22,7 @@ struct Packet {
 
 impl Packet {
     fn parse(packet: Vec<u8>) -> IOResult<Option<Packet>> {
-        let mut cursor = std::io::Cursor::new(packet);
+        let mut cursor = Cursor::new(packet);
         let header = cursor.read_i32::<LittleEndian>()?;
         match header {
             -1 => {
@@ -61,6 +63,14 @@ impl ValveQuery {
         self.0.connect(addr)
     }
 
+    pub fn timeout(&self) -> IOResult<Option<Duration>> {
+        self.0.read_timeout()
+    }
+
+    pub fn set_timeout(&self, timeout: Option<Duration>) -> IOResult<()> {
+        self.0.set_read_timeout(timeout)
+    }
+
     fn read_raw(&self) -> IOResult<Vec<u8>> {
         let mut buf = [0; PACKET_SIZE];
         let size = self.0.recv(&mut buf)?;
@@ -90,10 +100,34 @@ impl ValveQuery {
         Ok(packets.into_iter().flat_map(|(_, data)| data).collect())
     }
 
+    fn request(&self, buf: &[u8]) -> IOResult<Vec<u8>> {
+        self.0.send(buf)?;
+        self.read()
+    }
+
     pub fn a2s_info(&self) -> IOResult<Vec<u8>> {
-        let s = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00"; // TODO : const
-        self.0.send(s)?;
-        Ok(self.read()?)
+        let data: &'static [u8] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
+        let answer = self.request(data)?;
+
+        Ok(answer)
+    }
+
+    pub fn a2s_player_challenge(&self) -> IOResult<Option<i32>> {
+        let data: &'static [u8] = b"\xFF\xFF\xFF\xFFV\xFF\xFF\xFF\xFF";
+        let answer = self.request(data)?;
+        let mut cursor = Cursor::new(answer);
+        let header = cursor.read_u8()?;
+        match header {
+            0x41 => Ok(Some(cursor.read_i32::<LittleEndian>()?)),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn a2s_player(&self, challenge: i32) -> IOResult<Option<Vec<u8>>> {
+        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, 0x55, 0x0, 0x0, 0x0, 0x0];
+        LittleEndian::write_i32(&mut data[5..9], challenge);
+        let answer = self.request(&data)?;
+        Ok(Some(answer))
     }
 }
 
@@ -102,12 +136,31 @@ mod tests {
 
     use super::*;
 
+    const ADDR: &'static str = "62.140.250.10:27015";
+
     #[test]
-    fn it_works() {
+    fn a2s_connection() {
         let query = ValveQuery::bind("0.0.0.0:27315".parse().unwrap()).unwrap();
-        query
-            .connect("213.238.173.152:27015".parse().unwrap())
-            .unwrap();
+        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
+        query.connect(ADDR.parse().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a2s_info_test() {
+        let query = ValveQuery::bind("0.0.0.0:27415".parse().unwrap()).unwrap();
+        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
+        query.connect(ADDR.parse().unwrap()).unwrap();
         println!("{:?}", query.a2s_info().unwrap());
+    }
+
+    #[test]
+    fn a2s_challenge_test() {
+        let query = ValveQuery::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
+        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
+        query.connect(ADDR.parse().unwrap()).unwrap();
+        let challenge = query.a2s_player_challenge().unwrap().unwrap();
+        let answer = query.a2s_player(challenge).unwrap().unwrap();
+        println!("{}", challenge);
+        println!("{:?}", answer);
     }
 }
