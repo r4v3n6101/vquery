@@ -8,7 +8,7 @@ use itertools::Itertools;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
-    io::{BufRead, Cursor, Read, Result as IOResult},
+    io::{BufRead, Cursor, Error as IOError, ErrorKind, Read, Result as IOResult},
     net::{SocketAddr, UdpSocket},
     time::Duration,
 };
@@ -54,11 +54,18 @@ impl Packet {
     }
 }
 
-fn read_cstring<T: BufRead>(reader: &mut T) -> IOResult<CString> {
-    let mut out: Vec<u8> = Vec::new();
-    reader.read_until(b'\0', &mut out)?;
-    return Ok(unsafe { CString::from(CStr::from_bytes_with_nul_unchecked(&out)) });
+trait ReadCString: BufRead {
+    fn read_cstring(&mut self) -> IOResult<CString> {
+        let mut out: Vec<u8> = Vec::new();
+        self.read_until(b'\0', &mut out)?;
+        match CStr::from_bytes_with_nul(&out) {
+            Ok(cstr) => Ok(CString::from(cstr)),
+            Err(nul_err) => Err(IOError::new(ErrorKind::InvalidData, nul_err)),
+        }
+    }
 }
+
+impl<T: AsRef<[u8]>> ReadCString for Cursor<T> {}
 
 #[derive(Debug)]
 pub struct A2SPlayer {
@@ -98,13 +105,13 @@ pub struct A2SInfoOld {
 }
 
 impl A2SInfoOld {
-    pub fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoOld> {
+    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoOld> {
         Ok(A2SInfoOld {
-            address: read_cstring(cursor)?,
-            name: read_cstring(cursor)?,
-            map: read_cstring(cursor)?,
-            folder: read_cstring(cursor)?,
-            game: read_cstring(cursor)?,
+            address: cursor.read_cstring()?,
+            name: cursor.read_cstring()?,
+            map: cursor.read_cstring()?,
+            folder: cursor.read_cstring()?,
+            game: cursor.read_cstring()?,
             players: cursor.read_u8()?,
             max_players: cursor.read_u8()?,
             protocol: cursor.read_u8()?,
@@ -113,8 +120,8 @@ impl A2SInfoOld {
             is_visible: cursor.read_u8()? == 0,
             mod_data: if cursor.read_u8()? == 1 {
                 Some(ModData {
-                    link: read_cstring(cursor)?,
-                    download_link: read_cstring(cursor)?,
+                    link: cursor.read_cstring()?,
+                    download_link: cursor.read_cstring()?,
                     _nul: cursor.read_u8()?,
                     version: cursor.read_i32::<LittleEndian>()?,
                     size: cursor.read_i32::<LittleEndian>()?,
@@ -155,12 +162,12 @@ pub struct A2SInfoNew {
 }
 
 impl A2SInfoNew {
-    pub fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoNew> {
+    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoNew> {
         let protocol = cursor.read_u8()?;
-        let name = read_cstring(cursor)?;
-        let map = read_cstring(cursor)?;
-        let folder = read_cstring(cursor)?;
-        let game = read_cstring(cursor)?;
+        let name = cursor.read_cstring()?;
+        let map = cursor.read_cstring()?;
+        let folder = cursor.read_cstring()?;
+        let game = cursor.read_cstring()?;
         let steamid = cursor.read_i16::<LittleEndian>()?;
         let players = cursor.read_u8()?;
         let max_players = cursor.read_u8()?;
@@ -169,7 +176,7 @@ impl A2SInfoNew {
         let enviroment = cursor.read_u8()?;
         let visibility = cursor.read_u8()?;
         let vac = cursor.read_u8()?;
-        let version = read_cstring(cursor)?;
+        let version = cursor.read_cstring()?;
         let edf = cursor.read_u8()?;
         let port = if edf & 080 == 1 {
             Some(cursor.read_i16::<LittleEndian>()?)
@@ -184,13 +191,13 @@ impl A2SInfoNew {
         let (port_source_tv, name_source_tv) = if edf & 0x40 == 1 {
             (
                 Some(cursor.read_i16::<LittleEndian>()?),
-                Some(read_cstring(cursor)?),
+                Some(cursor.read_cstring()?),
             )
         } else {
             (None, None)
         };
         let keywords = if edf & 0x20 == 1 {
-            Some(read_cstring(cursor)?)
+            Some(cursor.read_cstring()?)
         } else {
             None
         };
@@ -224,6 +231,22 @@ impl A2SInfoNew {
         })
     }
 }
+
+#[derive(Debug)]
+pub enum QueryError {
+    IOErr(IOError),
+    UnknownHeader(u8),
+}
+
+pub type QueryResult<T> = Result<T, QueryError>;
+
+impl From<IOError> for QueryError {
+    fn from(err: IOError) -> QueryError {
+        QueryError::IOErr(err)
+    }
+}
+
+// TODO : impl Error for QueryError
 
 pub struct ValveQuery(UdpSocket);
 
@@ -278,59 +301,59 @@ impl ValveQuery {
         self.read()
     }
 
-    pub fn a2s_info(&self) -> IOResult<Option<Either<A2SInfoOld, A2SInfoNew>>> {
+    pub fn a2s_info(&self) -> QueryResult<Either<A2SInfoOld, A2SInfoNew>> {
         let data: &'static [u8] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
         let answer = self.request(data)?;
         let mut cursor = Cursor::new(answer);
         let header = cursor.read_u8()?;
         match header {
-            b'm' => Ok(Some(Either::Left(A2SInfoOld::read_from(&mut cursor)?))),
-            b'I' => Ok(Some(Either::Right(A2SInfoNew::read_from(&mut cursor)?))),
-            _ => Ok(None),
+            b'm' => Ok(Either::Left(A2SInfoOld::read_from(&mut cursor)?)),
+            b'I' => Ok(Either::Right(A2SInfoNew::read_from(&mut cursor)?)),
+            _ => Err(QueryError::UnknownHeader(header)),
         }
     }
 
-    fn a2s_challenge(&self, data: &'static [u8]) -> IOResult<Option<i32>> {
+    fn a2s_challenge(&self, data: &'static [u8]) -> QueryResult<i32> {
         let answer = self.request(data)?;
         let mut cursor = Cursor::new(answer);
         let header = cursor.read_u8()?;
         match header {
-            b'A' => Ok(Some(cursor.read_i32::<LittleEndian>()?)),
-            _ => Ok(None),
+            b'A' => Ok(cursor.read_i32::<LittleEndian>()?),
+            _ => Err(QueryError::UnknownHeader(header)),
         }
     }
 
-    pub fn a2s_player_challenge(&self) -> IOResult<Option<i32>> {
+    pub fn a2s_player_challenge(&self) -> QueryResult<i32> {
         self.a2s_challenge(b"\xFF\xFF\xFF\xFFU\xFF\xFF\xFF\xFF")
     }
 
-    pub fn a2s_rules_challenge(&self) -> IOResult<Option<i32>> {
+    pub fn a2s_rules_challenge(&self) -> QueryResult<i32> {
         self.a2s_challenge(b"\xFF\xFF\xFF\xFFV\xFF\xFF\xFF\xFF")
     }
 
-    pub fn a2s_player(&self, challenge: i32) -> IOResult<Option<Vec<A2SPlayer>>> {
+    pub fn a2s_player(&self, challenge: i32) -> QueryResult<Vec<A2SPlayer>> {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'U', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
         let mut cursor = Cursor::new(answer);
         let header = cursor.read_u8()?;
         if header != b'D' {
-            return Ok(None);
+            return Err(QueryError::UnknownHeader(header));
         }
         let players_num = cursor.read_u8()?;
         let mut players: Vec<A2SPlayer> = Vec::with_capacity(players_num as usize);
         for _ in 0..players_num {
             players.push(A2SPlayer {
                 index: cursor.read_u8()?,
-                name: read_cstring(&mut cursor)?,
+                name: cursor.read_cstring()?,
                 score: cursor.read_i32::<LittleEndian>()?,
                 duration: cursor.read_f32::<LittleEndian>()?,
             });
         }
-        Ok(Some(players))
+        Ok(players)
     }
 
-    pub fn a2s_rules(&self, challenge: i32) -> IOResult<Option<HashMap<CString, CString>>> {
+    pub fn a2s_rules(&self, challenge: i32) -> QueryResult<HashMap<CString, CString>> {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'V', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
@@ -338,7 +361,7 @@ impl ValveQuery {
 
         let header = cursor.read_u8()?;
         if header != b'E' {
-            return Ok(None);
+            return Err(QueryError::UnknownHeader(header));
         }
         let _ = cursor.read_i16::<LittleEndian>()?; // this may be wrong so don't use it
         let strs = cursor
@@ -353,11 +376,7 @@ impl ValveQuery {
             .tuples::<(_, _)>()
             .collect::<HashMap<_, _>>();
 
-        if strs.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(strs))
+        Ok(strs)
     }
 }
 
@@ -388,8 +407,8 @@ mod tests {
         let query = ValveQuery::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
-        let challenge = query.a2s_player_challenge().unwrap().unwrap();
-        let answer = query.a2s_player(challenge).unwrap().unwrap();
+        let challenge = query.a2s_player_challenge().unwrap();
+        let answer = query.a2s_player(challenge).unwrap();
         println!("{}", challenge);
         println!("{:?}", answer);
     }
@@ -399,8 +418,8 @@ mod tests {
         let query = ValveQuery::bind("0.0.0.0:27615".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
-        let challenge = query.a2s_rules_challenge().unwrap().unwrap();
-        let answer = query.a2s_rules(challenge).unwrap().unwrap();
+        let challenge = query.a2s_rules_challenge().unwrap();
+        let answer = query.a2s_rules(challenge).unwrap();
         println!("{}", challenge);
         println!("{:?}", answer);
     }
