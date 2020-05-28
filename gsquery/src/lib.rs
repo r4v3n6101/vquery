@@ -1,7 +1,9 @@
 extern crate byteorder;
+extern crate either;
 extern crate itertools;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use either::Either;
 use itertools::Itertools;
 use std::{
     collections::HashMap,
@@ -66,6 +68,163 @@ pub struct A2SPlayer {
     pub duration: f32,
 }
 
+#[derive(Debug)]
+pub struct ModData {
+    pub link: CString,
+    pub download_link: CString,
+    _nul: u8,
+    pub version: i32,
+    pub size: i32,
+    pub mp_only: bool,
+    pub original_dll: bool,
+}
+
+#[derive(Debug)]
+pub struct A2SInfoOld {
+    pub address: CString,
+    pub name: CString,
+    pub map: CString,
+    pub folder: CString,
+    pub game: CString,
+    pub players: u8,
+    pub max_players: u8,
+    pub protocol: u8,
+    pub server_type: u8,
+    pub enviroment: u8,
+    pub is_visible: bool,
+    pub mod_data: Option<ModData>,
+    pub vac_secured: bool,
+    pub bots_num: u8,
+}
+
+impl A2SInfoOld {
+    pub fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoOld> {
+        Ok(A2SInfoOld {
+            address: read_cstring(cursor)?,
+            name: read_cstring(cursor)?,
+            map: read_cstring(cursor)?,
+            folder: read_cstring(cursor)?,
+            game: read_cstring(cursor)?,
+            players: cursor.read_u8()?,
+            max_players: cursor.read_u8()?,
+            protocol: cursor.read_u8()?,
+            server_type: cursor.read_u8()?,
+            enviroment: cursor.read_u8()?,
+            is_visible: cursor.read_u8()? == 0,
+            mod_data: if cursor.read_u8()? == 1 {
+                Some(ModData {
+                    link: read_cstring(cursor)?,
+                    download_link: read_cstring(cursor)?,
+                    _nul: cursor.read_u8()?,
+                    version: cursor.read_i32::<LittleEndian>()?,
+                    size: cursor.read_i32::<LittleEndian>()?,
+                    mp_only: cursor.read_u8()? == 1,
+                    original_dll: cursor.read_u8()? == 0,
+                })
+            } else {
+                None
+            },
+            vac_secured: cursor.read_u8()? == 1,
+            bots_num: cursor.read_u8()?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct A2SInfoNew {
+    pub protocol: u8,
+    pub name: CString,
+    pub map: CString,
+    pub folder: CString,
+    pub game: CString,
+    pub steamid: i16,
+    pub players: u8,
+    pub max_players: u8,
+    pub bots: u8,
+    pub server_type: u8,
+    pub enviroment: u8,
+    pub is_visible: bool,
+    pub vac_secured: bool,
+    pub version: CString,
+    pub port: Option<i16>,
+    pub server_steamid: Option<u64>,
+    pub port_source_tv: Option<i16>,
+    pub name_source_tv: Option<CString>,
+    pub keywords: Option<CString>,
+    pub gameid: Option<u64>,
+}
+
+impl A2SInfoNew {
+    pub fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoNew> {
+        let protocol = cursor.read_u8()?;
+        let name = read_cstring(cursor)?;
+        let map = read_cstring(cursor)?;
+        let folder = read_cstring(cursor)?;
+        let game = read_cstring(cursor)?;
+        let steamid = cursor.read_i16::<LittleEndian>()?;
+        let players = cursor.read_u8()?;
+        let max_players = cursor.read_u8()?;
+        let bots = cursor.read_u8()?;
+        let server_type = cursor.read_u8()?;
+        let enviroment = cursor.read_u8()?;
+        let visibility = cursor.read_u8()?;
+        let vac = cursor.read_u8()?;
+        let version = read_cstring(cursor)?;
+        let edf = cursor.read_u8()?;
+        let port = if edf & 080 == 1 {
+            Some(cursor.read_i16::<LittleEndian>()?)
+        } else {
+            None
+        };
+        let server_steamid = if edf & 0x10 == 1 {
+            Some(cursor.read_u64::<LittleEndian>()?)
+        } else {
+            None
+        };
+        let (port_source_tv, name_source_tv) = if edf & 0x40 == 1 {
+            (
+                Some(cursor.read_i16::<LittleEndian>()?),
+                Some(read_cstring(cursor)?),
+            )
+        } else {
+            (None, None)
+        };
+        let keywords = if edf & 0x20 == 1 {
+            Some(read_cstring(cursor)?)
+        } else {
+            None
+        };
+        let gameid = if edf & 0x01 == 1 {
+            Some(cursor.read_u64::<LittleEndian>()?)
+        } else {
+            None
+        };
+
+        Ok(A2SInfoNew {
+            protocol,
+            name,
+            map,
+            folder,
+            game,
+            steamid,
+            players,
+            max_players,
+            bots,
+            server_type,
+            enviroment,
+            is_visible: visibility == 0,
+            vac_secured: vac == 1,
+            version,
+            port,
+            server_steamid,
+            port_source_tv,
+            name_source_tv,
+            keywords,
+            gameid,
+        })
+    }
+}
+
 pub struct ValveQuery(UdpSocket);
 
 impl ValveQuery {
@@ -119,11 +278,16 @@ impl ValveQuery {
         self.read()
     }
 
-    pub fn a2s_info(&self) -> IOResult<Vec<u8>> {
+    pub fn a2s_info(&self) -> IOResult<Option<Either<A2SInfoOld, A2SInfoNew>>> {
         let data: &'static [u8] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
         let answer = self.request(data)?;
-
-        Ok(answer)
+        let mut cursor = Cursor::new(answer);
+        let header = cursor.read_u8()?;
+        match header {
+            b'm' => Ok(Some(Either::Left(A2SInfoOld::read_from(&mut cursor)?))),
+            b'I' => Ok(Some(Either::Right(A2SInfoNew::read_from(&mut cursor)?))),
+            _ => Ok(None),
+        }
     }
 
     fn a2s_challenge(&self, data: &'static [u8]) -> IOResult<Option<i32>> {
