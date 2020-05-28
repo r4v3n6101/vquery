@@ -1,17 +1,17 @@
 extern crate byteorder;
+extern crate itertools;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
-use std::io::Cursor;
-use std::io::Read;
-use std::time::Duration;
+use itertools::Itertools;
 use std::{
-    io,
+    collections::HashMap,
+    ffi::CString,
+    io::{BufRead, Cursor, Read, Result as IOResult},
     net::{SocketAddr, UdpSocket},
+    time::Duration,
 };
 
 const PACKET_SIZE: usize = 1400;
-
-type IOResult<T> = io::Result<T>;
 
 struct Packet {
     unique_id: i32,
@@ -117,7 +117,7 @@ impl ValveQuery {
         let mut cursor = Cursor::new(answer);
         let header = cursor.read_u8()?;
         match header {
-            0x41 => Ok(Some(cursor.read_i32::<LittleEndian>()?)),
+            b'A' => Ok(Some(cursor.read_i32::<LittleEndian>()?)),
             _ => Ok(None),
         }
     }
@@ -131,17 +131,40 @@ impl ValveQuery {
     }
 
     pub fn a2s_player(&self, challenge: i32) -> IOResult<Option<Vec<u8>>> {
-        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, 0x55, 0x0, 0x0, 0x0, 0x0];
+        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'U', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
         Ok(Some(answer))
     }
 
-    pub fn a2s_rules(&self, challenge: i32) -> IOResult<Option<Vec<u8>>> {
-        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, 0x56, 0x0, 0x0, 0x0, 0x0];
+    pub fn a2s_rules(&self, challenge: i32) -> IOResult<Option<HashMap<CString, CString>>> {
+        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'V', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
-        Ok(Some(answer))
+        let mut cursor = Cursor::new(answer);
+
+        let header = cursor.read_u8()?;
+        if header != b'E' {
+            return Ok(None);
+        }
+        let _ = cursor.read_i16::<LittleEndian>()?; // this may be wrong so don't use it
+        let strs = cursor
+            .split(b'\0')
+            .filter_map(|e| match e {
+                Ok(s) => match CString::new(s) {
+                    Ok(cstr) => Some(cstr),
+                    Err(_) => None, // TODO : not ignore wrong strings but threw an error
+                },
+                Err(_) => None,
+            })
+            .tuples::<(_, _)>()
+            .collect::<HashMap<_, _>>();
+
+        if strs.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(strs))
     }
 }
 
