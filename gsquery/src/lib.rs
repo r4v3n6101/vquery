@@ -5,7 +5,7 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use itertools::Itertools;
 use std::{
     collections::HashMap,
-    ffi::CString,
+    ffi::{CStr, CString},
     io::{BufRead, Cursor, Read, Result as IOResult},
     net::{SocketAddr, UdpSocket},
     time::Duration,
@@ -50,6 +50,20 @@ impl Packet {
             _ => Ok(None),
         }
     }
+}
+
+fn read_cstring<T: BufRead>(reader: &mut T) -> IOResult<CString> {
+    let mut out: Vec<u8> = Vec::new();
+    reader.read_until(b'\0', &mut out)?;
+    return Ok(unsafe { CString::from(CStr::from_bytes_with_nul_unchecked(&out)) });
+}
+
+#[derive(Debug)]
+pub struct A2SPlayer {
+    pub index: u8,
+    pub name: CString,
+    pub score: i32,
+    pub duration: f32,
 }
 
 pub struct ValveQuery(UdpSocket);
@@ -130,11 +144,26 @@ impl ValveQuery {
         self.a2s_challenge(b"\xFF\xFF\xFF\xFFV\xFF\xFF\xFF\xFF")
     }
 
-    pub fn a2s_player(&self, challenge: i32) -> IOResult<Option<Vec<u8>>> {
+    pub fn a2s_player(&self, challenge: i32) -> IOResult<Option<Vec<A2SPlayer>>> {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'U', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
-        Ok(Some(answer))
+        let mut cursor = Cursor::new(answer);
+        let header = cursor.read_u8()?;
+        if header != b'D' {
+            return Ok(None);
+        }
+        let players_num = cursor.read_u8()?;
+        let mut players: Vec<A2SPlayer> = Vec::with_capacity(players_num as usize);
+        for _ in 0..players_num {
+            players.push(A2SPlayer {
+                index: cursor.read_u8()?,
+                name: read_cstring(&mut cursor)?,
+                score: cursor.read_i32::<LittleEndian>()?,
+                duration: cursor.read_f32::<LittleEndian>()?,
+            });
+        }
+        Ok(Some(players))
     }
 
     pub fn a2s_rules(&self, challenge: i32) -> IOResult<Option<HashMap<CString, CString>>> {
@@ -153,7 +182,7 @@ impl ValveQuery {
             .filter_map(|e| match e {
                 Ok(s) => match CString::new(s) {
                     Ok(cstr) => Some(cstr),
-                    Err(_) => None, // TODO : not ignore wrong strings but threw an error
+                    Err(_) => None, // TODO : not ignore wrong strings but return an error
                 },
                 Err(_) => None,
             })
