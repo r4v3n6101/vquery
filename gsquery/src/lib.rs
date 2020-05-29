@@ -387,11 +387,15 @@ impl ValveQuery {
         match header {
             b'E' => {
                 let num = cursor.read_i16::<LittleEndian>()?;
-                let mut out = HashMap::<CString, CString>::with_capacity(num as usize); // TODO : there're can be less rules than num
-                for _ in 0..num {
-                    let key = cursor.read_cstring()?;
-                    let val = cursor.read_cstring()?;
-                    out.insert(key, val);
+                let mut strs = cursor.split(b'\0').map(|res| match res {
+                    Ok(bytes) => {
+                        CString::new(bytes).map_err(|e| IOError::new(ErrorKind::InvalidData, e))
+                    }
+                    Err(e) => Err(IOError::new(ErrorKind::InvalidData, e)),
+                });
+                let mut out = HashMap::<CString, CString>::with_capacity(num as usize);
+                while let (Some(s1), Some(s2)) = (strs.next(), strs.next()) {
+                    out.insert(s1?, s2?);
                 }
                 Ok(out)
             }
