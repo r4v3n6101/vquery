@@ -168,32 +168,32 @@ impl ExtraData {
     fn read_from<T: BufRead>(reader: &mut T) -> IOResult<ExtraData> {
         let edf = reader.read_u8()?;
         Ok(ExtraData {
-            port: if edf & 080 == 1 {
+            port: if edf & 0x80 != 0 {
                 Some(reader.read_i16::<LittleEndian>()?)
             } else {
                 None
             },
-            server_steamid: if edf & 0x10 == 1 {
+            server_steamid: if edf & 0x10 != 0 {
                 Some(reader.read_u64::<LittleEndian>()?)
             } else {
                 None
             },
-            port_source_tv: if edf & 0x40 == 1 {
+            port_source_tv: if edf & 0x40 != 0 {
                 Some(reader.read_i16::<LittleEndian>()?)
             } else {
                 None
             },
-            name_source_tv: if edf & 0x40 == 1 {
+            name_source_tv: if edf & 0x40 != 0 {
                 Some(reader.read_cstring()?)
             } else {
                 None
             },
-            keywords: if edf & 0x20 == 1 {
+            keywords: if edf & 0x20 != 0 {
                 Some(reader.read_cstring()?)
             } else {
                 None
             },
-            gameid: if edf & 0x01 == 1 {
+            gameid: if edf & 0x01 != 0 {
                 Some(reader.read_u64::<LittleEndian>()?)
             } else {
                 None
@@ -308,7 +308,7 @@ impl ValveQuery {
         while packets.len() < num {
             let raw_packet = self.read_raw()?;
             if let Some(packet) = Packet::parse(raw_packet)? {
-                if packets.len() == 0 {
+                if packets.is_empty() {
                     // First packet is base of id and num data
                     unique_id = packet.unique_id;
                     num = packet.packets_num;
