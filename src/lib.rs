@@ -65,7 +65,7 @@ trait ReadCString: BufRead {
     }
 }
 
-impl<T: AsRef<[u8]>> ReadCString for Cursor<T> {}
+impl<T: BufRead> ReadCString for T {}
 
 #[derive(Debug)]
 pub struct A2SPlayer {
@@ -76,12 +76,12 @@ pub struct A2SPlayer {
 }
 
 impl A2SPlayer {
-    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SPlayer> {
+    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<A2SPlayer> {
         Ok(A2SPlayer {
-            index: cursor.read_u8()?,
-            name: cursor.read_cstring()?,
-            score: cursor.read_i32::<LittleEndian>()?,
-            duration: Duration::from_secs_f32(cursor.read_f32::<LittleEndian>()?),
+            index: reader.read_u8()?,
+            name: reader.read_cstring()?,
+            score: reader.read_i32::<LittleEndian>()?,
+            duration: Duration::from_secs_f32(reader.read_f32::<LittleEndian>()?),
         })
     }
 }
@@ -98,15 +98,15 @@ pub struct ModData {
 }
 
 impl ModData {
-    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<ModData> {
+    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<ModData> {
         Ok(ModData {
-            link: cursor.read_cstring()?,
-            download_link: cursor.read_cstring()?,
-            _nul: cursor.read_u8()?,
-            version: cursor.read_i32::<LittleEndian>()?,
-            size: cursor.read_i32::<LittleEndian>()?,
-            mp_only: cursor.read_u8()? == 1,
-            original_dll: cursor.read_u8()? == 0,
+            link: reader.read_cstring()?,
+            download_link: reader.read_cstring()?,
+            _nul: reader.read_u8()?,
+            version: reader.read_i32::<LittleEndian>()?,
+            size: reader.read_i32::<LittleEndian>()?,
+            mp_only: reader.read_u8()? == 1,
+            original_dll: reader.read_u8()? == 0,
         })
     }
 }
@@ -130,26 +130,26 @@ pub struct A2SInfoOld {
 }
 
 impl A2SInfoOld {
-    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoOld> {
+    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<A2SInfoOld> {
         Ok(A2SInfoOld {
-            address: cursor.read_cstring()?,
-            name: cursor.read_cstring()?,
-            map: cursor.read_cstring()?,
-            folder: cursor.read_cstring()?,
-            game: cursor.read_cstring()?,
-            players: cursor.read_u8()?,
-            max_players: cursor.read_u8()?,
-            protocol: cursor.read_u8()?,
-            server_type: cursor.read_u8()?,
-            enviroment: cursor.read_u8()?,
-            is_visible: cursor.read_u8()? == 0,
-            mod_data: if cursor.read_u8()? == 1 {
-                Some(ModData::read_from(cursor)?)
+            address: reader.read_cstring()?,
+            name: reader.read_cstring()?,
+            map: reader.read_cstring()?,
+            folder: reader.read_cstring()?,
+            game: reader.read_cstring()?,
+            players: reader.read_u8()?,
+            max_players: reader.read_u8()?,
+            protocol: reader.read_u8()?,
+            server_type: reader.read_u8()?,
+            enviroment: reader.read_u8()?,
+            is_visible: reader.read_u8()? == 0,
+            mod_data: if reader.read_u8()? == 1 {
+                Some(ModData::read_from(reader)?)
             } else {
                 None
             },
-            vac_secured: cursor.read_u8()? == 1,
-            bots_num: cursor.read_u8()?,
+            vac_secured: reader.read_u8()? == 1,
+            bots_num: reader.read_u8()?,
         })
     }
 }
@@ -165,36 +165,36 @@ pub struct ExtraData {
 }
 
 impl ExtraData {
-    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<ExtraData> {
-        let edf = cursor.read_u8()?;
+    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<ExtraData> {
+        let edf = reader.read_u8()?;
         Ok(ExtraData {
             port: if edf & 080 == 1 {
-                Some(cursor.read_i16::<LittleEndian>()?)
+                Some(reader.read_i16::<LittleEndian>()?)
             } else {
                 None
             },
             server_steamid: if edf & 0x10 == 1 {
-                Some(cursor.read_u64::<LittleEndian>()?)
+                Some(reader.read_u64::<LittleEndian>()?)
             } else {
                 None
             },
             port_source_tv: if edf & 0x40 == 1 {
-                Some(cursor.read_i16::<LittleEndian>()?)
+                Some(reader.read_i16::<LittleEndian>()?)
             } else {
                 None
             },
             name_source_tv: if edf & 0x40 == 1 {
-                Some(cursor.read_cstring()?)
+                Some(reader.read_cstring()?)
             } else {
                 None
             },
             keywords: if edf & 0x20 == 1 {
-                Some(cursor.read_cstring()?)
+                Some(reader.read_cstring()?)
             } else {
                 None
             },
             gameid: if edf & 0x01 == 1 {
-                Some(cursor.read_u64::<LittleEndian>()?)
+                Some(reader.read_u64::<LittleEndian>()?)
             } else {
                 None
             },
@@ -222,23 +222,23 @@ pub struct A2SInfoNew {
 }
 
 impl A2SInfoNew {
-    fn read_from(cursor: &mut Cursor<Vec<u8>>) -> IOResult<A2SInfoNew> {
+    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<A2SInfoNew> {
         Ok(A2SInfoNew {
-            protocol: cursor.read_u8()?,
-            name: cursor.read_cstring()?,
-            map: cursor.read_cstring()?,
-            folder: cursor.read_cstring()?,
-            game: cursor.read_cstring()?,
-            steamid: cursor.read_i16::<LittleEndian>()?,
-            players: cursor.read_u8()?,
-            max_players: cursor.read_u8()?,
-            bots: cursor.read_u8()?,
-            server_type: cursor.read_u8()?,
-            enviroment: cursor.read_u8()?,
-            is_visible: cursor.read_u8()? == 0,
-            vac_secured: cursor.read_u8()? == 1,
-            version: cursor.read_cstring()?,
-            extra_data: ExtraData::read_from(cursor)?,
+            protocol: reader.read_u8()?,
+            name: reader.read_cstring()?,
+            map: reader.read_cstring()?,
+            folder: reader.read_cstring()?,
+            game: reader.read_cstring()?,
+            steamid: reader.read_i16::<LittleEndian>()?,
+            players: reader.read_u8()?,
+            max_players: reader.read_u8()?,
+            bots: reader.read_u8()?,
+            server_type: reader.read_u8()?,
+            enviroment: reader.read_u8()?,
+            is_visible: reader.read_u8()? == 0,
+            vac_secured: reader.read_u8()? == 1,
+            version: reader.read_cstring()?,
+            extra_data: ExtraData::read_from(reader)?,
         })
     }
 }
