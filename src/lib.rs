@@ -1,7 +1,7 @@
 extern crate byteorder;
 extern crate either;
 
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use byteorder::{ByteOrder, LE, ReadBytesExt};
 use either::Either;
 use std::{
     collections::HashMap,
@@ -25,7 +25,7 @@ struct Packet {
 impl Packet {
     fn parse(packet: Vec<u8>) -> IOResult<Option<Packet>> {
         let mut buf = packet.as_slice();
-        let header = buf.read_i32::<LittleEndian>()?;
+        let header = buf.read_i32::<LE>()?;
         match header {
             -1 => {
                 let mut data = Vec::new();
@@ -38,7 +38,7 @@ impl Packet {
                 }))
             }
             -2 => {
-                let id = buf.read_i32::<LittleEndian>()?;
+                let id = buf.read_i32::<LE>()?;
                 let num = buf.read_u8()?;
                 let mut data = Vec::new();
                 buf.read_to_end(&mut data)?;
@@ -80,8 +80,8 @@ impl A2SPlayer {
         Ok(A2SPlayer {
             index: reader.read_u8()?,
             name: reader.read_cstring()?,
-            score: reader.read_i32::<LittleEndian>()?,
-            duration: Duration::from_secs_f32(reader.read_f32::<LittleEndian>()?),
+            score: reader.read_i32::<LE>()?,
+            duration: Duration::from_secs_f32(reader.read_f32::<LE>()?),
         })
     }
 }
@@ -103,8 +103,8 @@ impl ModData {
             link: reader.read_cstring()?,
             download_link: reader.read_cstring()?,
             _nul: reader.read_u8()?,
-            version: reader.read_i32::<LittleEndian>()?,
-            size: reader.read_i32::<LittleEndian>()?,
+            version: reader.read_i32::<LE>()?,
+            size: reader.read_i32::<LE>()?,
             mp_only: reader.read_u8()? == 1,
             original_dll: reader.read_u8()? == 0,
         })
@@ -169,17 +169,17 @@ impl ExtraData {
         let edf = reader.read_u8()?;
         Ok(ExtraData {
             port: if edf & 0x80 != 0 {
-                Some(reader.read_i16::<LittleEndian>()?)
+                Some(reader.read_i16::<LE>()?)
             } else {
                 None
             },
             server_steamid: if edf & 0x10 != 0 {
-                Some(reader.read_u64::<LittleEndian>()?)
+                Some(reader.read_u64::<LE>()?)
             } else {
                 None
             },
             port_source_tv: if edf & 0x40 != 0 {
-                Some(reader.read_i16::<LittleEndian>()?)
+                Some(reader.read_i16::<LE>()?)
             } else {
                 None
             },
@@ -194,7 +194,7 @@ impl ExtraData {
                 None
             },
             gameid: if edf & 0x01 != 0 {
-                Some(reader.read_u64::<LittleEndian>()?)
+                Some(reader.read_u64::<LE>()?)
             } else {
                 None
             },
@@ -229,7 +229,7 @@ impl A2SInfoNew {
             map: reader.read_cstring()?,
             folder: reader.read_cstring()?,
             game: reader.read_cstring()?,
-            steamid: reader.read_i16::<LittleEndian>()?,
+            steamid: reader.read_i16::<LE>()?,
             players: reader.read_u8()?,
             max_players: reader.read_u8()?,
             bots: reader.read_u8()?,
@@ -345,7 +345,7 @@ impl ValveQuery {
         let mut buf = answer.as_slice();
         let header = buf.read_u8()?;
         match header {
-            b'A' => Ok(buf.read_i32::<LittleEndian>()?),
+            b'A' => Ok(buf.read_i32::<LE>()?),
             _ => Err(QueryError::UnknownHeader(header)),
         }
     }
@@ -360,7 +360,7 @@ impl ValveQuery {
 
     pub fn a2s_player(&self, challenge: i32) -> QueryResult<Vec<A2SPlayer>> {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'U', 0x0, 0x0, 0x0, 0x0];
-        LittleEndian::write_i32(&mut data[5..9], challenge);
+        LE::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
         let mut buf = answer.as_slice();
         let header = buf.read_u8()?;
@@ -379,14 +379,14 @@ impl ValveQuery {
 
     pub fn a2s_rules(&self, challenge: i32) -> QueryResult<HashMap<CString, CString>> {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'V', 0x0, 0x0, 0x0, 0x0];
-        LittleEndian::write_i32(&mut data[5..9], challenge);
+        LE::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
         let mut buf = answer.as_slice();
 
         let header = buf.read_u8()?;
         match header {
             b'E' => {
-                let num = buf.read_i16::<LittleEndian>()?;
+                let num = buf.read_i16::<LE>()?;
                 let mut strs = BufRead::split(buf, b'\0').map(|res| match res {
                     Ok(bytes) => {
                         CString::new(bytes).map_err(|e| IOError::new(ErrorKind::InvalidData, e))
