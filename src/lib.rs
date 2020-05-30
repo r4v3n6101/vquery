@@ -8,7 +8,7 @@ use std::{
     error::Error,
     ffi::{CStr, CString},
     fmt::{Display, Formatter, Result as FmtResult},
-    io::{BufRead, Cursor, Error as IOError, ErrorKind, Read, Result as IOResult},
+    io::{BufRead, Error as IOError, ErrorKind, Read, Result as IOResult},
     net::{SocketAddr, UdpSocket},
     time::Duration,
 };
@@ -24,12 +24,12 @@ struct Packet {
 
 impl Packet {
     fn parse(packet: Vec<u8>) -> IOResult<Option<Packet>> {
-        let mut cursor = Cursor::new(packet);
-        let header = cursor.read_i32::<LittleEndian>()?;
+        let mut buf = packet.as_slice();
+        let header = buf.read_i32::<LittleEndian>()?;
         match header {
             -1 => {
                 let mut data = Vec::new();
-                cursor.read_to_end(&mut data)?;
+                buf.read_to_end(&mut data)?;
                 Ok(Some(Packet {
                     unique_id: 0,
                     id: 0,
@@ -38,10 +38,10 @@ impl Packet {
                 }))
             }
             -2 => {
-                let id = cursor.read_i32::<LittleEndian>()?;
-                let num = cursor.read_u8()?;
+                let id = buf.read_i32::<LittleEndian>()?;
+                let num = buf.read_u8()?;
                 let mut data = Vec::new();
-                cursor.read_to_end(&mut data)?;
+                buf.read_to_end(&mut data)?;
                 Ok(Some(Packet {
                     unique_id: id,
                     id: (num & 0xF0 >> 4) as usize,
@@ -331,21 +331,21 @@ impl ValveQuery {
     pub fn a2s_info(&self) -> QueryResult<Either<A2SInfoOld, A2SInfoNew>> {
         let data: &'static [u8] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
         let answer = self.request(data)?;
-        let mut cursor = Cursor::new(answer);
-        let header = cursor.read_u8()?;
+        let mut buf = answer.as_slice();
+        let header = buf.read_u8()?;
         match header {
-            b'm' => Ok(Either::Left(A2SInfoOld::read_from(&mut cursor)?)),
-            b'I' => Ok(Either::Right(A2SInfoNew::read_from(&mut cursor)?)),
+            b'm' => Ok(Either::Left(A2SInfoOld::read_from(&mut buf)?)),
+            b'I' => Ok(Either::Right(A2SInfoNew::read_from(&mut buf)?)),
             _ => Err(QueryError::UnknownHeader(header)),
         }
     }
 
     fn a2s_challenge(&self, data: &'static [u8]) -> QueryResult<i32> {
         let answer = self.request(data)?;
-        let mut cursor = Cursor::new(answer);
-        let header = cursor.read_u8()?;
+        let mut buf = answer.as_slice();
+        let header = buf.read_u8()?;
         match header {
-            b'A' => Ok(cursor.read_i32::<LittleEndian>()?),
+            b'A' => Ok(buf.read_i32::<LittleEndian>()?),
             _ => Err(QueryError::UnknownHeader(header)),
         }
     }
@@ -362,14 +362,14 @@ impl ValveQuery {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'U', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
-        let mut cursor = Cursor::new(answer);
-        let header = cursor.read_u8()?;
+        let mut buf = answer.as_slice();
+        let header = buf.read_u8()?;
         match header {
             b'D' => {
-                let players_num = cursor.read_u8()?;
+                let players_num = buf.read_u8()?;
                 let mut players: Vec<A2SPlayer> = Vec::with_capacity(players_num as usize);
                 for _ in 0..players_num {
-                    players.push(A2SPlayer::read_from(&mut cursor)?);
+                    players.push(A2SPlayer::read_from(&mut buf)?);
                 }
                 Ok(players)
             }
@@ -381,13 +381,13 @@ impl ValveQuery {
         let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'V', 0x0, 0x0, 0x0, 0x0];
         LittleEndian::write_i32(&mut data[5..9], challenge);
         let answer = self.request(&data)?;
-        let mut cursor = Cursor::new(answer);
+        let mut buf = answer.as_slice();
 
-        let header = cursor.read_u8()?;
+        let header = buf.read_u8()?;
         match header {
             b'E' => {
-                let num = cursor.read_i16::<LittleEndian>()?;
-                let mut strs = cursor.split(b'\0').map(|res| match res {
+                let num = buf.read_i16::<LittleEndian>()?;
+                let mut strs = BufRead::split(buf, b'\0').map(|res| match res {
                     Ok(bytes) => {
                         CString::new(bytes).map_err(|e| IOError::new(ErrorKind::InvalidData, e))
                     }
