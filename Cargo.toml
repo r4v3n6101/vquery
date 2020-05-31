@@ -1,6 +1,6 @@
 [package]
-name = "gsquery"
-version = "0.1.0"
+name = "vquery"
+version = "0.9.4"
 authors = ["r4v3n6101 <raven6107@gmail.com>"]
 edition = "2018"
 
