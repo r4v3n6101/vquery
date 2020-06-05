@@ -1,7 +1,7 @@
 extern crate byteorder;
 extern crate either;
 
-use byteorder::{ByteOrder, LE, ReadBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, LE};
 use either::Either;
 use std::{
     collections::HashMap,
@@ -246,7 +246,7 @@ impl A2SInfoNew {
 #[derive(Debug)]
 pub enum QueryError {
     IOErr(IOError),
-    UnknownHeader(u8),
+    UnknownHeader(u8, &'static str),
 }
 
 impl From<IOError> for QueryError {
@@ -259,7 +259,9 @@ impl Display for QueryError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match *self {
             QueryError::IOErr(ref err) => write!(f, "IO error: {}", err),
-            QueryError::UnknownHeader(ref header) => write!(f, "Wrong header: {}", header),
+            QueryError::UnknownHeader(ref header, ref expected) => {
+                write!(f, "Wrong header {}, expected {}", header, expected)
+            }
         }
     }
 }
@@ -268,7 +270,7 @@ impl Error for QueryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match *self {
             QueryError::IOErr(ref err) => Some(err),
-            QueryError::UnknownHeader(_) => None,
+            QueryError::UnknownHeader(_, _) => None,
         }
     }
 }
@@ -336,7 +338,7 @@ impl ValveQuery {
         match header {
             b'm' => Ok(Either::Left(A2SInfoOld::read_from(&mut buf)?)),
             b'I' => Ok(Either::Right(A2SInfoNew::read_from(&mut buf)?)),
-            _ => Err(QueryError::UnknownHeader(header)),
+            _ => Err(QueryError::UnknownHeader(header, "109 or 073")),
         }
     }
 
@@ -346,7 +348,7 @@ impl ValveQuery {
         let header = buf.read_u8()?;
         match header {
             b'A' => Ok(buf.read_i32::<LE>()?),
-            _ => Err(QueryError::UnknownHeader(header)),
+            _ => Err(QueryError::UnknownHeader(header, "065")),
         }
     }
 
@@ -373,7 +375,7 @@ impl ValveQuery {
                 }
                 Ok(players)
             }
-            _ => Err(QueryError::UnknownHeader(header)),
+            _ => Err(QueryError::UnknownHeader(header, "068")),
         }
     }
 
@@ -399,7 +401,7 @@ impl ValveQuery {
                 }
                 Ok(out)
             }
-            _ => Err(QueryError::UnknownHeader(header)),
+            _ => Err(QueryError::UnknownHeader(header, "069")),
         }
     }
 }
