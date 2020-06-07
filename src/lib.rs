@@ -390,9 +390,7 @@ impl ValveQuery {
             b'E' => {
                 let num = buf.read_i16::<LE>()?;
                 let mut strs = BufRead::split(buf, b'\0').map(|res| match res {
-                    Ok(bytes) => {
-                        CString::new(bytes).map_err(|e| IOError::new(ErrorKind::InvalidData, e))
-                    }
+                    Ok(bytes) => Ok(CString::new(bytes)?),
                     Err(e) => Err(IOError::new(ErrorKind::InvalidData, e)),
                 });
                 let mut out = HashMap::<CString, CString>::with_capacity(num as usize);
