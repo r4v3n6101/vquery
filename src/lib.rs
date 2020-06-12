@@ -1,17 +1,19 @@
-extern crate byteorder;
-extern crate either;
-
 use byteorder::{ByteOrder, ReadBytesExt, LE};
+use byteorder_parser::*;
 use either::Either;
 use std::{
     collections::HashMap,
-    error::Error,
-    ffi::{CStr, CString},
-    fmt::{Display, Formatter, Result as FmtResult},
+    ffi::CString,
     io::{BufRead, Error as IOError, ErrorKind, Read, Result as IOResult},
     net::{SocketAddr, UdpSocket},
     time::Duration,
 };
+
+mod types;
+pub use types::*;
+
+mod error;
+pub use error::*;
 
 const PACKET_SIZE: usize = 1400;
 
@@ -53,229 +55,6 @@ impl Packet {
         }
     }
 }
-
-trait ReadCString: BufRead {
-    fn read_cstring(&mut self) -> IOResult<CString> {
-        let mut out: Vec<u8> = Vec::new();
-        self.read_until(b'\0', &mut out)?;
-        match CStr::from_bytes_with_nul(&out) {
-            Ok(cstr) => Ok(CString::from(cstr)),
-            Err(nul_err) => Err(IOError::new(ErrorKind::InvalidData, nul_err)),
-        }
-    }
-}
-
-impl<T: BufRead> ReadCString for T {}
-
-#[derive(Debug)]
-pub struct A2SPlayer {
-    pub index: u8,
-    pub name: CString,
-    pub score: i32,
-    pub duration: Duration,
-}
-
-impl A2SPlayer {
-    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<A2SPlayer> {
-        Ok(A2SPlayer {
-            index: reader.read_u8()?,
-            name: reader.read_cstring()?,
-            score: reader.read_i32::<LE>()?,
-            duration: Duration::from_secs_f32(reader.read_f32::<LE>()?),
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct ModData {
-    pub link: CString,
-    pub download_link: CString,
-    _nul: u8,
-    pub version: i32,
-    pub size: i32,
-    pub mp_only: bool,
-    pub original_dll: bool,
-}
-
-impl ModData {
-    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<ModData> {
-        Ok(ModData {
-            link: reader.read_cstring()?,
-            download_link: reader.read_cstring()?,
-            _nul: reader.read_u8()?,
-            version: reader.read_i32::<LE>()?,
-            size: reader.read_i32::<LE>()?,
-            mp_only: reader.read_u8()? == 1,
-            original_dll: reader.read_u8()? == 0,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct A2SInfoOld {
-    pub address: CString,
-    pub name: CString,
-    pub map: CString,
-    pub folder: CString,
-    pub game: CString,
-    pub players: u8,
-    pub max_players: u8,
-    pub protocol: u8,
-    pub server_type: u8,
-    pub enviroment: u8,
-    pub is_visible: bool,
-    pub mod_data: Option<ModData>,
-    pub vac_secured: bool,
-    pub bots_num: u8,
-}
-
-impl A2SInfoOld {
-    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<A2SInfoOld> {
-        Ok(A2SInfoOld {
-            address: reader.read_cstring()?,
-            name: reader.read_cstring()?,
-            map: reader.read_cstring()?,
-            folder: reader.read_cstring()?,
-            game: reader.read_cstring()?,
-            players: reader.read_u8()?,
-            max_players: reader.read_u8()?,
-            protocol: reader.read_u8()?,
-            server_type: reader.read_u8()?,
-            enviroment: reader.read_u8()?,
-            is_visible: reader.read_u8()? == 0,
-            mod_data: if reader.read_u8()? == 1 {
-                Some(ModData::read_from(reader)?)
-            } else {
-                None
-            },
-            vac_secured: reader.read_u8()? == 1,
-            bots_num: reader.read_u8()?,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct ExtraData {
-    pub port: Option<i16>,
-    pub server_steamid: Option<u64>,
-    pub port_source_tv: Option<i16>,
-    pub name_source_tv: Option<CString>,
-    pub keywords: Option<CString>,
-    pub gameid: Option<u64>,
-}
-
-impl ExtraData {
-    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<ExtraData> {
-        let edf = reader.read_u8()?;
-        Ok(ExtraData {
-            port: if edf & 0x80 != 0 {
-                Some(reader.read_i16::<LE>()?)
-            } else {
-                None
-            },
-            server_steamid: if edf & 0x10 != 0 {
-                Some(reader.read_u64::<LE>()?)
-            } else {
-                None
-            },
-            port_source_tv: if edf & 0x40 != 0 {
-                Some(reader.read_i16::<LE>()?)
-            } else {
-                None
-            },
-            name_source_tv: if edf & 0x40 != 0 {
-                Some(reader.read_cstring()?)
-            } else {
-                None
-            },
-            keywords: if edf & 0x20 != 0 {
-                Some(reader.read_cstring()?)
-            } else {
-                None
-            },
-            gameid: if edf & 0x01 != 0 {
-                Some(reader.read_u64::<LE>()?)
-            } else {
-                None
-            },
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct A2SInfoNew {
-    pub protocol: u8,
-    pub name: CString,
-    pub map: CString,
-    pub folder: CString,
-    pub game: CString,
-    pub steamid: i16,
-    pub players: u8,
-    pub max_players: u8,
-    pub bots: u8,
-    pub server_type: u8,
-    pub enviroment: u8,
-    pub is_visible: bool,
-    pub vac_secured: bool,
-    pub version: CString,
-    pub extra_data: ExtraData,
-}
-
-impl A2SInfoNew {
-    fn read_from<T: BufRead>(reader: &mut T) -> IOResult<A2SInfoNew> {
-        Ok(A2SInfoNew {
-            protocol: reader.read_u8()?,
-            name: reader.read_cstring()?,
-            map: reader.read_cstring()?,
-            folder: reader.read_cstring()?,
-            game: reader.read_cstring()?,
-            steamid: reader.read_i16::<LE>()?,
-            players: reader.read_u8()?,
-            max_players: reader.read_u8()?,
-            bots: reader.read_u8()?,
-            server_type: reader.read_u8()?,
-            enviroment: reader.read_u8()?,
-            is_visible: reader.read_u8()? == 0,
-            vac_secured: reader.read_u8()? == 1,
-            version: reader.read_cstring()?,
-            extra_data: ExtraData::read_from(reader)?,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub enum QueryError {
-    IOErr(IOError),
-    UnknownHeader(u8, &'static str),
-}
-
-impl From<IOError> for QueryError {
-    fn from(err: IOError) -> QueryError {
-        QueryError::IOErr(err)
-    }
-}
-
-impl Display for QueryError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match *self {
-            QueryError::IOErr(ref err) => write!(f, "IO error: {}", err),
-            QueryError::UnknownHeader(ref header, ref expected) => {
-                write!(f, "Wrong header {}, expected {}", header, expected)
-            }
-        }
-    }
-}
-
-impl Error for QueryError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match *self {
-            QueryError::IOErr(ref err) => Some(err),
-            QueryError::UnknownHeader(_, _) => None,
-        }
-    }
-}
-
-pub type QueryResult<T> = Result<T, QueryError>;
 
 pub struct ValveQuery(UdpSocket);
 
@@ -336,8 +115,12 @@ impl ValveQuery {
         let mut buf = answer.as_slice();
         let header = buf.read_u8()?;
         match header {
-            b'm' => Ok(Either::Left(A2SInfoOld::read_from(&mut buf)?)),
-            b'I' => Ok(Either::Right(A2SInfoNew::read_from(&mut buf)?)),
+            b'm' => Ok(Either::Left(A2SInfoOld::read_with_byteorder::<LE, _>(
+                &mut buf,
+            )?)),
+            b'I' => Ok(Either::Right(A2SInfoNew::read_with_byteorder::<LE, _>(
+                &mut buf,
+            )?)),
             _ => Err(QueryError::UnknownHeader(header, "109 or 073")),
         }
     }
@@ -371,7 +154,7 @@ impl ValveQuery {
                 let players_num = buf.read_u8()?;
                 let mut players: Vec<A2SPlayer> = Vec::with_capacity(players_num as usize);
                 for _ in 0..players_num {
-                    players.push(A2SPlayer::read_from(&mut buf)?);
+                    players.push(A2SPlayer::read_with_byteorder::<LE, _>(&mut buf)?);
                 }
                 Ok(players)
             }
