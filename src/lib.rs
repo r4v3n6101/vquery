@@ -1,5 +1,3 @@
-use byteorder::{ByteOrder, ReadBytesExt, LE};
-use byteorder_parser::*;
 use either::Either;
 use std::{
     collections::HashMap,

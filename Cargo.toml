@@ -5,6 +5,6 @@ authors = ["r4v3n6101 <raven6107@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-byteorder = "*"
-byteorder_parser = { git = "https://github.com/r4v3n6101/byteorder_parser/" }
+nom = "*"
+nom-derive = "0.6.0-beta2"
 either = "*"
