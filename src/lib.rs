@@ -1,4 +1,6 @@
 use either::Either;
+use nom::number::streaming::le_i32;
+use nom::*;
 use std::{
     collections::HashMap,
     ffi::CString,
@@ -16,23 +18,47 @@ pub use error::*;
 const PACKET_SIZE: usize = 1400;
 
 struct Packet {
+    header: i32,
     unique_id: i32,
-    id: usize,
+    index: usize,
     packets_num: usize,
     data: Vec<u8>,
 }
 
+/*named!(
+    parse<Packet>,
+    do_parse!(
+        header: le_i32 >>
+        id: switch!(value!(header),
+            -1 => value!(0) |
+            -2 => le_i32
+        ) >>
+        num: switch!(value!(header),
+            -1 => value!(1) |
+            -2 => le_i32
+        ) >>
+        (Packet{
+            header,
+            id,
+            index: (num & 0xF0 >> 4) as usize,
+            packets_num: (num & 0xF0) as usize,
+        })
+    )
+);*/
+
 impl Packet {
     fn parse(packet: Vec<u8>) -> IOResult<Option<Packet>> {
         let mut buf = packet.as_slice();
-        let header = buf.read_i32::<LE>()?;
+
+        // TODO : macro
+        let header = le_i32(buf)?;
         match header {
             -1 => {
                 let mut data = Vec::new();
                 buf.read_to_end(&mut data)?;
                 Ok(Some(Packet {
                     unique_id: 0,
-                    id: 0,
+                    index: 0,
                     packets_num: 1,
                     data,
                 }))
@@ -44,7 +70,7 @@ impl Packet {
                 buf.read_to_end(&mut data)?;
                 Ok(Some(Packet {
                     unique_id: id,
-                    id: (num & 0xF0 >> 4) as usize,
+                    index: (num & 0xF0 >> 4) as usize,
                     packets_num: (num & 0xF0) as usize,
                     data,
                 }))
@@ -94,7 +120,7 @@ impl ValveQuery {
                 } else if unique_id != packet.unique_id || num != packet.packets_num {
                     continue; // skip wrong packets to catch another one
                 }
-                packets.push((packet.id, packet.data));
+                packets.push((packet.index, packet.data));
             }
         }
 
@@ -113,9 +139,7 @@ impl ValveQuery {
         let mut buf = answer.as_slice();
         let header = buf.read_u8()?;
         match header {
-            b'm' => Ok(Either::Left(A2SInfoOld::read_with_byteorder::<LE, _>(
-                &mut buf,
-            )?)),
+            b'm' => Ok(Either::Left(A2SInfoOld::parse(&mut buf)?)),
             b'I' => Ok(Either::Right(A2SInfoNew::read_with_byteorder::<LE, _>(
                 &mut buf,
             )?)),
@@ -142,8 +166,18 @@ impl ValveQuery {
     }
 
     pub fn a2s_player(&self, challenge: i32) -> QueryResult<Vec<A2SPlayer>> {
-        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'U', 0x0, 0x0, 0x0, 0x0];
-        LE::write_i32(&mut data[5..9], challenge);
+        let challenge = challenge.to_le_bytes();
+        let data = [
+            0xFF,
+            0xFF,
+            0xFF,
+            0xFF,
+            b'U',
+            challenge[0],
+            challenge[1],
+            challenge[2],
+            challenge[3],
+        ];
         let answer = self.request(&data)?;
         let mut buf = answer.as_slice();
         let header = buf.read_u8()?;

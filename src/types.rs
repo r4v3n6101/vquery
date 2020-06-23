@@ -16,7 +16,7 @@ fn bytes_to_cstring(slice: &[u8]) -> CString {
 #[nom(LittleEndian)]
 pub struct A2SPlayer {
     pub index: u8,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub name: CString,
     pub score: i32,
     #[nom(Parse = "le_f32", Map = "Duration::from_secs_f32")]
@@ -26,9 +26,9 @@ pub struct A2SPlayer {
 #[derive(Debug, Nom)]
 #[nom(LittleEndian)]
 pub struct ModData {
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub link: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub download_link: CString,
     #[nom(AlignBefore(1))]
     pub version: i32,
@@ -42,15 +42,15 @@ pub struct ModData {
 #[derive(Debug, Nom)]
 #[nom(LittleEndian)]
 pub struct A2SInfoOld {
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub address: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub name: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub map: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub folder: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub game: CString,
     pub players: u8,
     pub max_players: u8,
@@ -70,7 +70,7 @@ pub struct A2SInfoOld {
 #[derive(Debug, Nom)]
 #[nom(LittleEndian)]
 pub struct ExtraData {
-    edf: u8,
+    pub edf: u8,
     #[nom(Cond = "edf & 0x80 != 0")]
     pub port: Option<i16>,
     #[nom(Cond = "edf & 0x10 != 0")]
@@ -79,31 +79,30 @@ pub struct ExtraData {
     pub port_source_tv: Option<i16>,
     #[nom(
         Cond = "edf & 0x40 != 0",
-        Parse = "take_till(|b| b == b'0')",
+        Parse = "take_till(|b| b == 0)",
         Map = "bytes_to_cstring"
     )]
     pub name_source_tv: Option<CString>,
     #[nom(
         Cond = "edf & 0x20 != 0",
-        Parse = "take_till(|b| b == b'0')",
+        Parse = "take_till(|b| b == 0)",
         Map = "bytes_to_cstring"
     )]
     pub keywords: Option<CString>,
     #[nom(Cond = "edf & 0x01 != 0")]
     pub gameid: Option<u64>,
 }
-
 #[derive(Debug, Nom)]
 #[nom(LittleEndian)]
 pub struct A2SInfoNew {
     pub protocol: u8,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub name: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub map: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub folder: CString,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub game: CString,
     pub steamid: i16,
     pub players: u8,
@@ -115,7 +114,7 @@ pub struct A2SInfoNew {
     pub is_visible: bool,
     #[nom(Parse = "le_u8", Map = "|x: u8| x != 0")]
     pub vac_secured: bool,
-    #[nom(Parse = "take_till(|b| b == b'0')", Map = "bytes_to_cstring")]
+    #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
     pub version: CString,
     pub extra_data: ExtraData,
 }
