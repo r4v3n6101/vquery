@@ -1,6 +1,5 @@
 use either::Either;
-use nom::number::streaming::le_i32;
-use nom::*;
+use nom_derive::*;
 use std::{
     collections::HashMap,
     ffi::CString,
@@ -15,70 +14,8 @@ pub use types::*;
 mod error;
 pub use error::*;
 
-const PACKET_SIZE: usize = 1400;
-
-struct Packet {
-    header: i32,
-    unique_id: i32,
-    index: usize,
-    packets_num: usize,
-    data: Vec<u8>,
-}
-
-/*named!(
-    parse<Packet>,
-    do_parse!(
-        header: le_i32 >>
-        id: switch!(value!(header),
-            -1 => value!(0) |
-            -2 => le_i32
-        ) >>
-        num: switch!(value!(header),
-            -1 => value!(1) |
-            -2 => le_i32
-        ) >>
-        (Packet{
-            header,
-            id,
-            index: (num & 0xF0 >> 4) as usize,
-            packets_num: (num & 0xF0) as usize,
-        })
-    )
-);*/
-
-impl Packet {
-    fn parse(packet: Vec<u8>) -> IOResult<Option<Packet>> {
-        let mut buf = packet.as_slice();
-
-        // TODO : macro
-        let header = le_i32(buf)?;
-        match header {
-            -1 => {
-                let mut data = Vec::new();
-                buf.read_to_end(&mut data)?;
-                Ok(Some(Packet {
-                    unique_id: 0,
-                    index: 0,
-                    packets_num: 1,
-                    data,
-                }))
-            }
-            -2 => {
-                let id = buf.read_i32::<LE>()?;
-                let num = buf.read_u8()?;
-                let mut data = Vec::new();
-                buf.read_to_end(&mut data)?;
-                Ok(Some(Packet {
-                    unique_id: id,
-                    index: (num & 0xF0 >> 4) as usize,
-                    packets_num: (num & 0xF0) as usize,
-                    data,
-                }))
-            }
-            _ => Ok(None),
-        }
-    }
-}
+mod engine;
+use engine::*;
 
 pub struct ValveQuery(UdpSocket);
 
@@ -99,50 +36,18 @@ impl ValveQuery {
         self.0.set_read_timeout(timeout)
     }
 
-    fn read_raw(&self) -> IOResult<Vec<u8>> {
-        let mut buf = [0; PACKET_SIZE];
-        let size = self.0.recv(&mut buf)?;
-        Ok(buf[..size].to_vec())
-    }
-
-    fn read(&self) -> IOResult<Vec<u8>> {
-        let mut packets: Vec<(usize, Vec<u8>)> = Vec::new();
-        let mut num = 1;
-        let mut unique_id = 0;
-
-        while packets.len() < num {
-            let raw_packet = self.read_raw()?;
-            if let Some(packet) = Packet::parse(raw_packet)? {
-                if packets.is_empty() {
-                    // First packet is base of id and num data
-                    unique_id = packet.unique_id;
-                    num = packet.packets_num;
-                } else if unique_id != packet.unique_id || num != packet.packets_num {
-                    continue; // skip wrong packets to catch another one
-                }
-                packets.push((packet.index, packet.data));
-            }
-        }
-
-        packets.sort_by(|(id1, _), (id2, _)| id1.cmp(id2));
-        Ok(packets.into_iter().flat_map(|(_, data)| data).collect())
-    }
-
     fn request(&self, buf: &[u8]) -> IOResult<Vec<u8>> {
         self.0.send(buf)?;
-        self.read()
+        read(&self.0)
     }
 
     pub fn a2s_info(&self) -> QueryResult<Either<A2SInfoOld, A2SInfoNew>> {
         let data: &'static [u8] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
         let answer = self.request(data)?;
-        let mut buf = answer.as_slice();
-        let header = buf.read_u8()?;
+        let (i, header) = nom::number::streaming::le_u8(&answer).unwrap(); // TODO : temporary unwrap
         match header {
-            b'm' => Ok(Either::Left(A2SInfoOld::parse(&mut buf)?)),
-            b'I' => Ok(Either::Right(A2SInfoNew::read_with_byteorder::<LE, _>(
-                &mut buf,
-            )?)),
+            b'm' => Ok(Either::Left(A2SInfoOld::parse(i).unwrap().1)),
+            b'I' => Ok(Either::Right(A2SInfoNew::parse(i).unwrap().1)),
             _ => Err(QueryError::UnknownHeader(header, "109 or 073")),
         }
     }

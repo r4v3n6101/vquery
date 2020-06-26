@@ -17,6 +17,7 @@ fn bytes_to_cstring(slice: &[u8]) -> CString {
 pub struct A2SPlayer {
     pub index: u8,
     #[nom(Parse = "take_till(|b| b == 0)", Map = "bytes_to_cstring")]
+    // TODO : take_till doesn't include nul-byte
     pub name: CString,
     pub score: i32,
     #[nom(Parse = "le_f32", Map = "Duration::from_secs_f32")]
@@ -59,8 +60,10 @@ pub struct A2SInfoOld {
     pub enviroment: u8,
     #[nom(Parse = "le_u8", Map = "|x: u8| x != 0")]
     pub is_private: bool,
-    mod_data_exists: u8,
-    #[nom(Cond = "mod_data_exists == 1")]
+    #[nom(
+        PreExec = "let (i, mod_data_exists) = nom::number::streaming::le_u8(i)?;",
+        Cond = "mod_data_exists == 1"
+    )]
     pub mod_data: Option<ModData>,
     #[nom(Parse = "le_u8", Map = "|x: u8| x != 0")]
     pub vac_secured: bool,
