@@ -11,7 +11,7 @@ fn take_cstring(i: &[u8]) -> nom::IResult<&[u8], CString> {
 }
 
 fn le_bool(i: &[u8]) -> nom::IResult<&[u8], bool> {
-    nom::number::streaming::le_u8(i).map(|(i, b)| (i, b != 0))
+    nom::combinator::map(nom::number::streaming::le_u8, |b| b != 0)(i)
 }
 
 #[derive(Debug, Nom)]

@@ -47,7 +47,7 @@ impl ValveQuery {
             challenge: u32,
         }
         let answer = self.request(data)?;
-        let (_, a2s_challenge) = A2SChallenge::parse(&answer).unwrap(); // TODO :
+        let (_, a2s_challenge) = A2SChallenge::parse(&answer)?;
         Ok(a2s_challenge.challenge)
     }
 
@@ -69,7 +69,7 @@ impl ValveQuery {
         }
 
         let answer = self.request(b"\xFF\xFF\xFF\xFFTSource Engine Query\x00")?;
-        let (_, a2s_info_old) = A2SInfoOld::parse(&answer).unwrap(); // TODO
+        let (_, a2s_info_old) = A2SInfoOld::parse(&answer)?;
         Ok(a2s_info_old.info)
     }
 
@@ -83,7 +83,7 @@ impl ValveQuery {
         }
 
         let answer = self.request(b"\xFF\xFF\xFF\xFFTSource Engine Query\x00")?;
-        let (_, a2s_info_new) = A2SInfoNew::parse(&answer).unwrap(); // TODO
+        let (_, a2s_info_new) = A2SInfoNew::parse(&answer)?;
         Ok(a2s_info_new.info)
     }
 
@@ -108,7 +108,7 @@ impl ValveQuery {
             challenge[3],
         ];
         let answer = self.request(&data)?;
-        let (_, a2s_player) = A2SPlayer::parse(&answer).unwrap();
+        let (_, a2s_player) = A2SPlayer::parse(&answer)?;
         Ok(a2s_player.list)
     }
 
@@ -133,7 +133,7 @@ impl ValveQuery {
             challenge[3],
         ];
         let answer = self.request(&data)?;
-        let (_, a2s_rules) = A2SRules::parse(&answer).unwrap();
+        let (_, a2s_rules) = A2SRules::parse(&answer)?;
         Ok(a2s_rules.list)
     }
 }
