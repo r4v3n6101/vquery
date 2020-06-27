@@ -41,36 +41,60 @@ impl ValveQuery {
         read(&self.0)
     }
 
-    pub fn a2s_info(&self) -> QueryResult<Either<A2SInfoOld, A2SInfoNew>> {
-        let data: &'static [u8] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
-        let answer = self.request(data)?;
-        let (i, header) = nom::number::streaming::le_u8(&answer).unwrap(); // TODO : temporary unwrap
-        match header {
-            b'm' => Ok(Either::Left(A2SInfoOld::parse(i).unwrap().1)),
-            b'I' => Ok(Either::Right(A2SInfoNew::parse(i).unwrap().1)),
-            _ => Err(QueryError::UnknownHeader(header, "109 or 073")),
+    fn a2s_challenge(&self, data: &'static [u8]) -> QueryResult<u32> {
+        #[derive(Nom)]
+        #[nom(LittleEndian)]
+        struct A2SChallenge<'a> {
+            #[nom(Tag(b"A"))]
+            header: &'a [u8],
+            challenge: u32,
         }
+        let answer = self.request(data)?;
+        let (_, a2s_challenge) = A2SChallenge::parse(&answer).unwrap(); // TODO :
+        Ok(a2s_challenge.challenge)
     }
 
-    fn a2s_challenge(&self, data: &'static [u8]) -> QueryResult<i32> {
-        let answer = self.request(data)?;
-        let mut buf = answer.as_slice();
-        let header = buf.read_u8()?;
-        match header {
-            b'A' => Ok(buf.read_i32::<LE>()?),
-            _ => Err(QueryError::UnknownHeader(header, "065")),
-        }
-    }
-
-    pub fn a2s_player_challenge(&self) -> QueryResult<i32> {
+    pub fn a2s_player_challenge(&self) -> QueryResult<u32> {
         self.a2s_challenge(b"\xFF\xFF\xFF\xFFU\xFF\xFF\xFF\xFF")
     }
 
-    pub fn a2s_rules_challenge(&self) -> QueryResult<i32> {
+    pub fn a2s_rules_challenge(&self) -> QueryResult<u32> {
         self.a2s_challenge(b"\xFF\xFF\xFF\xFFV\xFF\xFF\xFF\xFF")
     }
 
-    pub fn a2s_player(&self, challenge: i32) -> QueryResult<Vec<A2SPlayer>> {
+    pub fn a2s_info_old(&self) -> QueryResult<InfoOld> {
+        #[derive(Nom)]
+        #[nom(LittleEndian)]
+        struct A2SInfoOld<'a> {
+            #[nom(Tag(b"m"))]
+            header: &'a [u8],
+            info: InfoOld,
+        }
+
+        let answer = self.request(b"\xFF\xFF\xFF\xFFTSource Engine Query\x00")?;
+        let (_, a2s_info_old) = A2SInfoOld::parse(&answer).unwrap(); // TODO
+        Ok(a2s_info_old.info)
+    }
+
+    pub fn a2s_info_new(&self) -> QueryResult<InfoNew> {
+        #[derive(Nom)]
+        #[nom(LittleEndian)]
+        struct A2SInfoNew<'a> {
+            #[nom(Tag(b"I"))]
+            header: &'a [u8],
+            info: InfoNew,
+        }
+
+        let answer = self.request(b"\xFF\xFF\xFF\xFFTSource Engine Query\x00")?;
+        let (_, a2s_info_new) = A2SInfoNew::parse(&answer).unwrap(); // TODO
+        Ok(a2s_info_new.info)
+    }
+
+    pub fn a2s_info(&self) -> QueryResult<Either<InfoNew, InfoOld>> {
+        unimplemented!()
+    }
+
+    /*pub fn a2s_player(&self, challenge: i32) -> QueryResult<Vec<A2SPlayer>> {
         let challenge = challenge.to_le_bytes();
         let data = [
             0xFF,
@@ -121,7 +145,7 @@ impl ValveQuery {
             }
             _ => Err(QueryError::UnknownHeader(header, "069")),
         }
-    }
+    } */
 }
 
 #[cfg(test)]
@@ -136,10 +160,10 @@ mod tests {
         let query = ValveQuery::bind("0.0.0.0:27415".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
-        println!("{:?}", query.a2s_info().unwrap());
+        println!("{:?}", query.a2s_info_old().unwrap());
     }
 
-    #[test]
+    /*#[test]
     fn a2s_player_test() {
         let query = ValveQuery::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
@@ -159,5 +183,5 @@ mod tests {
         let answer = query.a2s_rules(challenge).unwrap();
         println!("{}", challenge);
         println!("{:?}", answer);
-    }
+    }*/
 }
