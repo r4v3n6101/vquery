@@ -7,4 +7,3 @@ edition = "2018"
 [dependencies]
 nom = "*"
 nom-derive = "*"
-either = "*"

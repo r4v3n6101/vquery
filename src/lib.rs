@@ -1,9 +1,6 @@
-use either::Either;
 use nom_derive::*;
 use std::{
-    collections::HashMap,
-    ffi::CString,
-    io::{BufRead, Error as IOError, ErrorKind, Read, Result as IOResult},
+    io::Result as IOResult,
     net::{SocketAddr, UdpSocket},
     time::Duration,
 };
@@ -90,11 +87,14 @@ impl ValveQuery {
         Ok(a2s_info_new.info)
     }
 
-    pub fn a2s_info(&self) -> QueryResult<Either<InfoNew, InfoOld>> {
-        unimplemented!()
-    }
-
-    /*pub fn a2s_player(&self, challenge: i32) -> QueryResult<Vec<A2SPlayer>> {
+    pub fn a2s_players(&self, challenge: u32) -> QueryResult<PlayersList> {
+        #[derive(Nom)]
+        #[nom(LittleEndian)]
+        struct A2SPlayer<'a> {
+            #[nom(Tag(b"D"))]
+            header: &'a [u8],
+            list: PlayersList,
+        }
         let challenge = challenge.to_le_bytes();
         let data = [
             0xFF,
@@ -108,44 +108,34 @@ impl ValveQuery {
             challenge[3],
         ];
         let answer = self.request(&data)?;
-        let mut buf = answer.as_slice();
-        let header = buf.read_u8()?;
-        match header {
-            b'D' => {
-                let players_num = buf.read_u8()?;
-                let mut players: Vec<A2SPlayer> = Vec::with_capacity(players_num as usize);
-                for _ in 0..players_num {
-                    players.push(A2SPlayer::read_with_byteorder::<LE, _>(&mut buf)?);
-                }
-                Ok(players)
-            }
-            _ => Err(QueryError::UnknownHeader(header, "068")),
-        }
+        let (_, a2s_player) = A2SPlayer::parse(&answer).unwrap();
+        Ok(a2s_player.list)
     }
 
-    pub fn a2s_rules(&self, challenge: i32) -> QueryResult<HashMap<CString, CString>> {
-        let mut data = [0xFF, 0xFF, 0xFF, 0xFF, b'V', 0x0, 0x0, 0x0, 0x0];
-        LE::write_i32(&mut data[5..9], challenge);
-        let answer = self.request(&data)?;
-        let mut buf = answer.as_slice();
-
-        let header = buf.read_u8()?;
-        match header {
-            b'E' => {
-                let num = buf.read_i16::<LE>()?;
-                let mut strs = BufRead::split(buf, b'\0').map(|res| match res {
-                    Ok(bytes) => Ok(CString::new(bytes)?),
-                    Err(e) => Err(IOError::new(ErrorKind::InvalidData, e)),
-                });
-                let mut out = HashMap::<CString, CString>::with_capacity(num as usize);
-                while let (Some(s1), Some(s2)) = (strs.next(), strs.next()) {
-                    out.insert(s1?, s2?);
-                }
-                Ok(out)
-            }
-            _ => Err(QueryError::UnknownHeader(header, "069")),
+    pub fn a2s_rules(&self, challenge: u32) -> QueryResult<RulesList> {
+        #[derive(Nom)]
+        #[nom(LittleEndian)]
+        struct A2SRules<'a> {
+            #[nom(Tag(b"E"))]
+            header: &'a [u8],
+            list: RulesList,
         }
-    } */
+        let challenge = challenge.to_le_bytes();
+        let data = [
+            0xFF,
+            0xFF,
+            0xFF,
+            0xFF,
+            b'V',
+            challenge[0],
+            challenge[1],
+            challenge[2],
+            challenge[3],
+        ];
+        let answer = self.request(&data)?;
+        let (_, a2s_rules) = A2SRules::parse(&answer).unwrap();
+        Ok(a2s_rules.list)
+    }
 }
 
 #[cfg(test)]
@@ -163,13 +153,13 @@ mod tests {
         println!("{:?}", query.a2s_info_old().unwrap());
     }
 
-    /*#[test]
+    #[test]
     fn a2s_player_test() {
         let query = ValveQuery::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
         let challenge = query.a2s_player_challenge().unwrap();
-        let answer = query.a2s_player(challenge).unwrap();
+        let answer = query.a2s_players(challenge).unwrap();
         println!("{}", challenge);
         println!("{:?}", answer);
     }
@@ -183,5 +173,5 @@ mod tests {
         let answer = query.a2s_rules(challenge).unwrap();
         println!("{}", challenge);
         println!("{:?}", answer);
-    }*/
+    }
 }

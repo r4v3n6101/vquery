@@ -107,11 +107,34 @@ pub struct InfoNew {
 
 #[derive(Debug, Nom)]
 #[nom(LittleEndian)]
-pub struct A2SPlayer {
+pub struct Player {
     pub index: u8,
     #[nom(Parse = "take_cstring")]
     pub name: CString,
     pub score: i32,
     #[nom(Parse = "le_f32", Map = "Duration::from_secs_f32")]
     pub duration: Duration,
+}
+
+#[derive(Debug, Nom)]
+#[nom(LittleEndian)]
+pub struct PlayersList {
+    pub players_num: u8,
+    pub players: Vec<Player>,
+}
+
+#[derive(Debug, Nom)]
+#[nom(LittleEndian)]
+pub struct Rule {
+    #[nom(Parse = "take_cstring")]
+    pub key: CString,
+    #[nom(Parse = "take_cstring")]
+    pub value: CString,
+}
+
+#[derive(Debug, Nom)]
+#[nom(LittleEndian)]
+pub struct RulesList {
+    pub rules_num: u16,
+    pub rules: Vec<Rule>,
 }
