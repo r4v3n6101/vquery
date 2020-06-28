@@ -1,6 +1,7 @@
 use nom_derive::*;
 use std::{
     io::Result as IOResult,
+    marker::PhantomData,
     net::{SocketAddr, UdpSocket},
     time::Duration,
 };
@@ -14,11 +15,11 @@ pub use error::*;
 mod engine;
 use engine::*;
 
-pub struct ValveQuery(UdpSocket);
+pub struct ValveQuery<P: MultiPacketParser>(UdpSocket, PhantomData<P>);
 
-impl ValveQuery {
-    pub fn bind(addr: SocketAddr) -> IOResult<ValveQuery> {
-        Ok(ValveQuery(UdpSocket::bind(addr)?))
+impl<P: MultiPacketParser> ValveQuery<P> {
+    pub fn bind(addr: SocketAddr) -> IOResult<ValveQuery<P>> {
+        Ok(ValveQuery(UdpSocket::bind(addr)?, PhantomData))
     }
 
     pub fn connect(&self, addr: SocketAddr) -> IOResult<()> {
@@ -33,9 +34,9 @@ impl ValveQuery {
         self.0.set_read_timeout(timeout)
     }
 
-    fn request(&self, buf: &[u8]) -> IOResult<Vec<u8>> {
+    fn request(&self, buf: &[u8]) -> QueryResult<Vec<u8>> {
         self.0.send(buf)?;
-        read(&self.0)
+        read_payload::<P>(&self.0)
     }
 
     fn a2s_challenge(&self, data: &'static [u8]) -> QueryResult<u32> {
@@ -147,7 +148,8 @@ mod tests {
 
     #[test]
     fn a2s_info_test() {
-        let query = ValveQuery::bind("0.0.0.0:27415".parse().unwrap()).unwrap();
+        let query =
+            ValveQuery::<GoldsrcMultiPacketParser>::bind("0.0.0.0:27415".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
         println!("{:?}", query.a2s_info_old().unwrap());
@@ -155,7 +157,8 @@ mod tests {
 
     #[test]
     fn a2s_player_test() {
-        let query = ValveQuery::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
+        let query =
+            ValveQuery::<GoldsrcMultiPacketParser>::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
         let challenge = query.a2s_player_challenge().unwrap();
@@ -166,7 +169,8 @@ mod tests {
 
     #[test]
     fn a2s_rules_test() {
-        let query = ValveQuery::bind("0.0.0.0:27615".parse().unwrap()).unwrap();
+        let query =
+            ValveQuery::<GoldsrcMultiPacketParser>::bind("0.0.0.0:27615".parse().unwrap()).unwrap();
         query.set_timeout(Some(Duration::new(10, 0))).unwrap();
         query.connect(ADDR.parse().unwrap()).unwrap();
         let challenge = query.a2s_rules_challenge().unwrap();

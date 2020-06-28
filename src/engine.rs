@@ -1,65 +1,129 @@
+// TODO : rename mod
+
+use crate::error::QueryResult;
+use nom_derive::*;
 use std::io::Result as IOResult;
 use std::net::UdpSocket;
 
-const PACKET_SIZE: usize = 1400;
+const DEFAULT_PACKET_SIZE: usize = 1400;
 
-#[derive(Debug)]
-struct GoldsrcPacket {
-    header: i32,
-    uid: i32,
-    index: u8,
-    packets_num: u8,
+struct DecompressInfo {
+    decompressed_size: u32,
+    crc32_sum: u32,
 }
 
-impl GoldsrcPacket {
-    fn parse(i: &[u8]) -> nom::IResult<&[u8], GoldsrcPacket> {
-        let (i, header) =
-            nom::combinator::verify(nom::number::streaming::le_i32, |&x| x == -1 || x == -2)(i)?;
-        let (i, uid, num) = match header {
-            -1 => (i, 0, 1),
-            -2 => {
-                let (i, uid) = nom::number::streaming::le_i32(i)?;
-                let (i, num) = nom::number::streaming::le_u8(i)?;
-                (i, uid, num)
-            }
-            _ => unreachable!(), // checked above
-        };
-        let index = (num & 0xF0) >> 4;
-        let packets_num = num & 0xF0;
+pub struct MultiPacket {
+    uid: u32,
+    index: usize,
+    total: usize,
+    switch_size: usize, // TODO : write comments
+    decompress_info: Option<DecompressInfo>,
+    payload: Vec<u8>,
+}
+
+pub trait MultiPacketParser {
+    fn parse(i: &[u8]) -> nom::IResult<&[u8], MultiPacket>;
+}
+
+pub struct GoldsrcMultiPacketParser; // TODO : naming
+
+impl MultiPacketParser for GoldsrcMultiPacketParser {
+    fn parse(i: &[u8]) -> nom::IResult<&[u8], MultiPacket> {
+        let (i, uid) = nom::number::streaming::le_u32(i)?;
+        let (i, num) = nom::number::streaming::le_u8(i)?;
         Ok((
-            i,
-            GoldsrcPacket {
-                header,
+            &[],
+            MultiPacket {
                 uid,
-                index,
-                packets_num,
+                index: ((num & 0xF0) >> 4) as usize,
+                total: (num & 0xF0) as usize,
+                switch_size: DEFAULT_PACKET_SIZE,
+                decompress_info: None,
+                payload: i.to_vec(),
             },
         ))
     }
 }
 
-pub(crate) fn read(socket: &UdpSocket) -> IOResult<Vec<u8>> {
-    let mut packets: Vec<(usize, Vec<u8>)> = Vec::new();
-    let mut num = 1;
-    let mut unique_id = 0;
+pub struct SourceMultiPacketParser; // TODO : trait?
 
-    while packets.len() < num {
-        let mut buf = [0; PACKET_SIZE];
-        let size = socket.recv(&mut buf)?;
-        let raw_packet = &buf[..size];
-
-        if let Ok((i, packet)) = GoldsrcPacket::parse(raw_packet) {
-            if packets.is_empty() {
-                // First packet is base of id and num data
-                unique_id = packet.uid;
-                num = packet.packets_num as usize;
-            } else if unique_id != packet.uid || num != packet.packets_num as usize {
-                continue; // skip wrong packets to catch another one
-            }
-            packets.push((packet.index as usize, i.to_vec()));
+impl MultiPacketParser for SourceMultiPacketParser {
+    fn parse(i: &[u8]) -> nom::IResult<&[u8], MultiPacket> {
+        #[derive(Nom)]
+        #[nom(LittleEndian)]
+        struct SourcePacket {
+            uid: u32,
+            total: u8,
+            index: u8,
+            size: u16,
+            #[nom(Cond = "uid & 0x80000000 != 0")]
+            decomp_data: Option<u32>,
+            #[nom(Cond = "uid & 0x80000000 != 0")]
+            crc32: Option<u32>,
         }
+        let (i, packet) = SourcePacket::parse(i)?;
+        Ok((
+            &[],
+            MultiPacket {
+                uid: packet.uid,
+                index: packet.index as usize,
+                total: packet.total as usize,
+                switch_size: packet.size as usize,
+                decompress_info: if let (Some(decompressed_size), Some(crc32_sum)) =
+                    (packet.decomp_data, packet.crc32)
+                {
+                    Some(DecompressInfo {
+                        crc32_sum,
+                        decompressed_size,
+                    })
+                } else {
+                    None
+                },
+                payload: i.to_vec(),
+            },
+        ))
+    }
+}
+
+fn read_raw(socket: &UdpSocket, packet_size: usize) -> IOResult<Vec<u8>> {
+    let mut buf = vec![0; packet_size];
+    let size = socket.recv(&mut buf)?;
+    buf.truncate(size);
+    Ok(buf)
+}
+
+fn read_multi<P: MultiPacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult<Vec<u8>> {
+    let (_, init_packet) = P::parse(i)?;
+
+    let mut payloads: Vec<Vec<u8>> = vec![vec![]; init_packet.total];
+    payloads.insert(init_packet.index, init_packet.payload);
+    while payloads.len() < payloads.capacity() {
+        let packet = read_raw(socket, init_packet.switch_size)?;
+        let (i, header) = nom::number::streaming::le_i32(&packet)?;
+        if header != -2 {
+            unimplemented!();
+        }
+        let (_, new_packet) = P::parse(i)?;
+        if init_packet.uid != new_packet.uid || init_packet.total != new_packet.total {
+            unimplemented!(); // TODO : replace
+        }
+        payloads.insert(new_packet.index as usize, new_packet.payload);
     }
 
-    packets.sort_by(|(id1, _), (id2, _)| id1.cmp(id2));
-    Ok(packets.into_iter().flat_map(|(_, i)| i).collect()) // TODO : temporary solution
+    let full_payload = payloads.into_iter().flatten().collect();
+    if let Some(decompress_info) = init_packet.decompress_info {
+        // TODO : decompress
+    }
+
+    Ok(full_payload)
+}
+
+pub fn read_payload<P: MultiPacketParser>(socket: &UdpSocket) -> QueryResult<Vec<u8>> {
+    let packet = read_raw(socket, DEFAULT_PACKET_SIZE)?;
+    let (i, header) = nom::number::streaming::le_i32(&packet)?;
+    match header {
+        -1 => Ok(i.to_vec()),
+        -2 => read_multi::<P>(i, socket),
+        _ => unimplemented!(),
+    }
 }
