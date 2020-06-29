@@ -1,7 +1,5 @@
-// TODO : rename mod
-
 use crate::error::QueryResult;
-use nom_derive::*;
+use nom_derive::Nom;
 use std::io::Result as IOResult;
 use std::net::UdpSocket;
 
@@ -21,13 +19,13 @@ pub struct MultiPacket {
     payload: Vec<u8>,
 }
 
-pub trait MultiPacketParser {
+pub trait PacketParser {
     fn parse(i: &[u8]) -> nom::IResult<&[u8], MultiPacket>;
 }
 
-pub struct GoldsrcMultiPacketParser; // TODO : naming
+pub struct GoldsrcParser;
 
-impl MultiPacketParser for GoldsrcMultiPacketParser {
+impl PacketParser for GoldsrcParser {
     fn parse(i: &[u8]) -> nom::IResult<&[u8], MultiPacket> {
         let (i, uid) = nom::number::streaming::le_u32(i)?;
         let (i, num) = nom::number::streaming::le_u8(i)?;
@@ -45,9 +43,9 @@ impl MultiPacketParser for GoldsrcMultiPacketParser {
     }
 }
 
-pub struct SourceMultiPacketParser; // TODO : trait?
+pub struct SourceParser;
 
-impl MultiPacketParser for SourceMultiPacketParser {
+impl PacketParser for SourceParser {
     fn parse(i: &[u8]) -> nom::IResult<&[u8], MultiPacket> {
         #[derive(Nom)]
         #[nom(LittleEndian)]
@@ -92,7 +90,7 @@ fn read_raw(socket: &UdpSocket, packet_size: usize) -> IOResult<Vec<u8>> {
     Ok(buf)
 }
 
-fn read_multi<P: MultiPacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult<Vec<u8>> {
+fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult<Vec<u8>> {
     let (_, init_packet) = P::parse(i)?;
 
     let mut payloads: Vec<Vec<u8>> = vec![vec![]; init_packet.total];
@@ -101,7 +99,7 @@ fn read_multi<P: MultiPacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult
         let packet = read_raw(socket, init_packet.switch_size)?;
         let (i, header) = nom::number::streaming::le_i32(&packet)?;
         if header != -2 {
-            unimplemented!();
+            unimplemented!(); // TODO
         }
         let (_, new_packet) = P::parse(i)?;
         if init_packet.uid != new_packet.uid || init_packet.total != new_packet.total {
@@ -112,18 +110,18 @@ fn read_multi<P: MultiPacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult
 
     let full_payload = payloads.into_iter().flatten().collect();
     if let Some(decompress_info) = init_packet.decompress_info {
-        // TODO : decompress
+        unimplemented!(); // TODO : decompress
     }
 
     Ok(full_payload)
 }
 
-pub fn read_payload<P: MultiPacketParser>(socket: &UdpSocket) -> QueryResult<Vec<u8>> {
+pub(crate) fn read_payload<P: PacketParser>(socket: &UdpSocket) -> QueryResult<Vec<u8>> {
     let packet = read_raw(socket, DEFAULT_PACKET_SIZE)?;
     let (i, header) = nom::number::streaming::le_i32(&packet)?;
     match header {
         -1 => Ok(i.to_vec()),
         -2 => read_multi::<P>(i, socket),
-        _ => unimplemented!(),
+        _ => unimplemented!(), // TODO
     }
 }

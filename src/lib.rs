@@ -1,4 +1,4 @@
-use nom_derive::*;
+use nom_derive::Nom;
 use std::{
     io::Result as IOResult,
     marker::PhantomData,
@@ -6,18 +6,19 @@ use std::{
     time::Duration,
 };
 
-mod types;
-pub use types::*;
+mod packet;
+use packet::read_payload;
+pub use packet::{GoldsrcParser, PacketParser, SourceParser};
 
 mod error;
 pub use error::*;
 
-mod engine;
-use engine::*;
+mod protocol;
+pub use protocol::*;
 
-pub struct ValveQuery<P: MultiPacketParser>(UdpSocket, PhantomData<P>);
+pub struct ValveQuery<P: PacketParser>(UdpSocket, PhantomData<P>);
 
-impl<P: MultiPacketParser> ValveQuery<P> {
+impl<P: PacketParser> ValveQuery<P> {
     pub fn bind(addr: SocketAddr) -> IOResult<ValveQuery<P>> {
         Ok(ValveQuery(UdpSocket::bind(addr)?, PhantomData))
     }
@@ -44,7 +45,7 @@ impl<P: MultiPacketParser> ValveQuery<P> {
         #[nom(LittleEndian)]
         struct A2SChallenge<'a> {
             #[nom(Tag(b"A"))]
-            header: &'a [u8],
+            _header: &'a [u8],
             challenge: u32,
         }
         let answer = self.request(data)?;
@@ -65,7 +66,7 @@ impl<P: MultiPacketParser> ValveQuery<P> {
         #[nom(LittleEndian)]
         struct A2SInfoOld<'a> {
             #[nom(Tag(b"m"))]
-            header: &'a [u8],
+            _header: &'a [u8],
             info: InfoOld,
         }
 
@@ -79,7 +80,7 @@ impl<P: MultiPacketParser> ValveQuery<P> {
         #[nom(LittleEndian)]
         struct A2SInfoNew<'a> {
             #[nom(Tag(b"I"))]
-            header: &'a [u8],
+            _header: &'a [u8],
             info: InfoNew,
         }
 
@@ -93,7 +94,7 @@ impl<P: MultiPacketParser> ValveQuery<P> {
         #[nom(LittleEndian)]
         struct A2SPlayer<'a> {
             #[nom(Tag(b"D"))]
-            header: &'a [u8],
+            _header: &'a [u8],
             list: PlayersList,
         }
         let challenge = challenge.to_le_bytes();
@@ -118,7 +119,7 @@ impl<P: MultiPacketParser> ValveQuery<P> {
         #[nom(LittleEndian)]
         struct A2SRules<'a> {
             #[nom(Tag(b"E"))]
-            header: &'a [u8],
+            _header: &'a [u8],
             list: RulesList,
         }
         let challenge = challenge.to_le_bytes();
@@ -134,48 +135,20 @@ impl<P: MultiPacketParser> ValveQuery<P> {
             challenge[3],
         ];
         let answer = self.request(&data)?;
-        let (_, a2s_rules) = A2SRules::parse(&answer)?;
+
+        let mut slice = answer.as_slice();
+        if let Ok((i, four_ff)) =
+            nom::number::streaming::le_u32::<(_, nom::error::ErrorKind)>(slice)
+        {
+            if four_ff == 0xFFFF_FFFF {
+                // Undocumented: a2s_rules may start with four FF before header 0x45 (it's not single packet marker)
+                slice = i;
+            }
+        }
+
+        let (_, a2s_rules) = A2SRules::parse(slice)?;
+        // Sometimes it skips fields, so some fields will have wrong order (keys and values are
+        // swapped)
         Ok(a2s_rules.list)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    const ADDR: &'static str = "62.140.250.10:27015";
-
-    #[test]
-    fn a2s_info_test() {
-        let query =
-            ValveQuery::<GoldsrcMultiPacketParser>::bind("0.0.0.0:27415".parse().unwrap()).unwrap();
-        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
-        query.connect(ADDR.parse().unwrap()).unwrap();
-        println!("{:?}", query.a2s_info_old().unwrap());
-    }
-
-    #[test]
-    fn a2s_player_test() {
-        let query =
-            ValveQuery::<GoldsrcMultiPacketParser>::bind("0.0.0.0:27515".parse().unwrap()).unwrap();
-        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
-        query.connect(ADDR.parse().unwrap()).unwrap();
-        let challenge = query.a2s_player_challenge().unwrap();
-        let answer = query.a2s_players(challenge).unwrap();
-        println!("{}", challenge);
-        println!("{:?}", answer);
-    }
-
-    #[test]
-    fn a2s_rules_test() {
-        let query =
-            ValveQuery::<GoldsrcMultiPacketParser>::bind("0.0.0.0:27615".parse().unwrap()).unwrap();
-        query.set_timeout(Some(Duration::new(10, 0))).unwrap();
-        query.connect(ADDR.parse().unwrap()).unwrap();
-        let challenge = query.a2s_rules_challenge().unwrap();
-        let answer = query.a2s_rules(challenge).unwrap();
-        println!("{}", challenge);
-        println!("{:?}", answer);
     }
 }

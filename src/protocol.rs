@@ -1,10 +1,10 @@
 use nom::number::streaming::le_f32;
-use nom_derive::*;
+use nom_derive::Nom;
 use std::{ffi::CString, time::Duration};
 
 fn take_cstring(i: &[u8]) -> nom::IResult<&[u8], CString> {
     let (i, cstr) = nom::bytes::streaming::take_till(|b| b == 0)(i)?;
-    let (i, _) = nom::bytes::streaming::take(1usize)(i)?;
+    let (i, _) = nom::bytes::streaming::take(1_usize)(i)?;
     // Safety: safe because we already know that cstr doesn't contain nul-byte
     let cstring = unsafe { CString::from_vec_unchecked(cstr.to_vec()) };
     Ok((i, cstring))
