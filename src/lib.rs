@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+// TODO : visibility
 mod packet;
 use packet::read_payload;
 pub use packet::{GoldsrcParser, PacketParser, SourceParser};
@@ -13,8 +14,8 @@ pub use packet::{GoldsrcParser, PacketParser, SourceParser};
 mod error;
 pub use error::*;
 
-mod protocol;
-pub use protocol::*;
+mod a2s;
+pub use a2s::*;
 
 pub struct ValveQuery<P: PacketParser>(UdpSocket, PhantomData<P>);
 
@@ -36,8 +37,8 @@ impl<P: PacketParser> ValveQuery<P> {
     }
 
     fn request(&self, buf: &[u8]) -> QueryResult<Vec<u8>> {
-        self.0.send(buf)?;
-        read_payload::<P>(&self.0)
+        self.0.send(buf).map_err(packet::error::Error::from)?;
+        Ok(read_payload::<P>(&self.0)?)
     }
 
     fn a2s_challenge(&self, data: &'static [u8]) -> QueryResult<u32> {
@@ -147,8 +148,6 @@ impl<P: PacketParser> ValveQuery<P> {
         }
 
         let (_, a2s_rules) = A2SRules::parse(slice)?;
-        // Sometimes it skips fields, so some fields will have wrong order (keys and values are
-        // swapped)
         Ok(a2s_rules.list)
     }
 }

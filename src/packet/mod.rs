@@ -1,7 +1,10 @@
-use crate::error::QueryResult;
+use bzip2::{Decompress, Error as Bz2Error};
+use crc::crc32::checksum_ieee;
 use nom_derive::Nom;
-use std::io::Result as IOResult;
-use std::net::UdpSocket;
+use std::{io::Result as IOResult, net::UdpSocket};
+
+pub mod error;
+use error::{Error as PacketError, MultiHeader, PacketResult};
 
 const DEFAULT_PACKET_SIZE: usize = 1400;
 
@@ -90,7 +93,14 @@ fn read_raw(socket: &UdpSocket, packet_size: usize) -> IOResult<Vec<u8>> {
     Ok(buf)
 }
 
-fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult<Vec<u8>> {
+fn decompress(compressed: Vec<u8>, output_size: usize) -> Result<Vec<u8>, Bz2Error> {
+    let mut decompressed = vec![0; output_size];
+    let mut decompressor = Decompress::new(false); // Packets won't be large anyway, so don't worry about memmory
+    decompressor.decompress(&compressed, &mut decompressed)?;
+    Ok(decompressed)
+}
+
+fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> PacketResult<Vec<u8>> {
     let (_, init_packet) = P::parse(i)?;
 
     let mut payloads: Vec<Vec<u8>> = vec![vec![]; init_packet.total];
@@ -99,29 +109,44 @@ fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> QueryResult<Vec<
         let packet = read_raw(socket, init_packet.switch_size)?;
         let (i, header) = nom::number::streaming::le_i32(&packet)?;
         if header != -2 {
-            unimplemented!(); // TODO
+            return Err(PacketError::WrongHeader(header));
         }
         let (_, new_packet) = P::parse(i)?;
         if init_packet.uid != new_packet.uid || init_packet.total != new_packet.total {
-            unimplemented!(); // TODO : replace
+            return Err(PacketError::Interrupted {
+                base: MultiHeader {
+                    uid: init_packet.uid,
+                    total: init_packet.total,
+                },
+                wrong: MultiHeader {
+                    uid: new_packet.uid,
+                    total: new_packet.total,
+                },
+            });
         }
         payloads.insert(new_packet.index as usize, new_packet.payload);
     }
 
     let full_payload = payloads.into_iter().flatten().collect();
     if let Some(decompress_info) = init_packet.decompress_info {
-        unimplemented!(); // TODO : decompress
+        let full_payload = decompress(full_payload, decompress_info.decompressed_size as usize)?;
+        let expected_crc32 = decompress_info.crc32_sum;
+        let calculated_crc32 = checksum_ieee(&full_payload);
+        if expected_crc32 != calculated_crc32 {
+            return Err(PacketError::Crc32(expected_crc32, calculated_crc32));
+        }
+        return Ok(full_payload);
     }
 
     Ok(full_payload)
 }
 
-pub(crate) fn read_payload<P: PacketParser>(socket: &UdpSocket) -> QueryResult<Vec<u8>> {
+pub(crate) fn read_payload<P: PacketParser>(socket: &UdpSocket) -> PacketResult<Vec<u8>> {
     let packet = read_raw(socket, DEFAULT_PACKET_SIZE)?;
     let (i, header) = nom::number::streaming::le_i32(&packet)?;
     match header {
         -1 => Ok(i.to_vec()),
         -2 => read_multi::<P>(i, socket),
-        _ => unimplemented!(), // TODO
+        _ => Err(PacketError::WrongHeader(header)),
     }
 }
