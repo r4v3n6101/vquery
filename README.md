@@ -1,5 +1,5 @@
 # vquery
-Rust crate is helpful at querying information from Valve goldsrc/source servers (both supported).
+Rust crate is helpful at querying information from Valve's goldsrc/source servers (both are supported).
 
 ## Use example
 ```rust
