@@ -36,8 +36,8 @@ impl PacketParser for GoldsrcParser {
             &[],
             MultiPacket {
                 uid,
-                index: ((num & 0xF0) >> 4) as usize,
-                total: (num & 0xF0) as usize,
+                index: (num >> 4) as usize,
+                total: (num & 0xF) as usize,
                 switch_size: DEFAULT_PACKET_SIZE,
                 decompress_info: None,
                 payload: i.to_vec(),
@@ -93,10 +93,10 @@ fn read_raw(socket: &UdpSocket, packet_size: usize) -> IOResult<Vec<u8>> {
     Ok(buf)
 }
 
-fn decompress(compressed: Vec<u8>, output_size: usize) -> Result<Vec<u8>, Bz2Error> {
+fn decompress(compressed: &[u8], output_size: usize) -> Result<Vec<u8>, Bz2Error> {
     let mut decompressed = vec![0; output_size];
     let mut decompressor = Decompress::new(false); // Packets won't be large anyway, so don't worry about memmory
-    decompressor.decompress(&compressed, &mut decompressed)?;
+    decompressor.decompress(compressed, &mut decompressed)?;
     Ok(decompressed)
 }
 
@@ -127,9 +127,9 @@ fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> PacketResult<Vec
         payloads.insert(new_packet.index as usize, new_packet.payload);
     }
 
-    let full_payload = payloads.into_iter().flatten().collect();
+    let full_payload: Vec<u8> = payloads.into_iter().flatten().collect();
     if let Some(decompress_info) = init_packet.decompress_info {
-        let full_payload = decompress(full_payload, decompress_info.decompressed_size as usize)?;
+        let full_payload = decompress(&full_payload, decompress_info.decompressed_size as usize)?;
         let expected_crc32 = decompress_info.crc32_sum;
         let calculated_crc32 = checksum_ieee(&full_payload);
         if expected_crc32 != calculated_crc32 {
