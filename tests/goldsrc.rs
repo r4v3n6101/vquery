@@ -1,7 +1,7 @@
 use std::time::Duration;
-use vquery::*;
+use vquery::server::*;
 
-const ADDR: &'static str = "62.140.250.10:27015";
+const ADDR: &str = "62.140.250.10:27015";
 
 #[test]
 fn a2s_info_old() {

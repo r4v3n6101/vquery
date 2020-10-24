@@ -1,4 +1,4 @@
-use crate::packet::error::Error as PacketError;
+use super::packet::error::Error as PacketError;
 use thiserror::Error;
 
 type NomError<'a> = nom::Err<(&'a [u8], nom::error::ErrorKind)>;
