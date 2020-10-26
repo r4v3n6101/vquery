@@ -1,10 +1,12 @@
-use nom_derive::Nom;
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Result as IOResult,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
+    net::{SocketAddr, SocketAddrV4, UdpSocket},
     time::Duration,
 };
+
+mod reply;
+use reply::Reply;
 
 const BUF_SIZE: usize = 2 << 20; // 1Mb
 
@@ -118,37 +120,6 @@ impl MasterServerQuery {
         Ok(buf)
     }
 
-    fn parse(buf: &[u8]) -> Vec<SocketAddrV4> {
-        #[derive(Nom)]
-        #[nom(LittleEndian)]
-        struct Ip {
-            first: u8,
-            second: u8,
-            third: u8,
-            fourth: u8,
-            #[nom(BigEndian)]
-            port: u16,
-        }
-
-        #[derive(Nom)]
-        struct IpReply<'a> {
-            #[nom(Tag(b"\xFF\xFF\xFF\xFF\x66\x0A"))]
-            _header: &'a [u8],
-            data: Vec<Ip>,
-        }
-
-        let (_, ip) = IpReply::parse(buf).unwrap(); // TODO : return Result::Err
-        ip.data
-            .into_iter()
-            .map(|ip| {
-                SocketAddrV4::new(
-                    Ipv4Addr::new(ip.first, ip.second, ip.third, ip.fourth),
-                    ip.port,
-                )
-            })
-            .collect()
-    }
-
     pub fn request(&self, region: Region, filters: &[Filter]) -> Vec<SocketAddrV4> {
         let data = self
             .raw_request(
@@ -158,6 +129,7 @@ impl MasterServerQuery {
                 filters.iter().map(|f| format!("{}", f)).collect::<String>(),
             )
             .unwrap();
-        Self::parse(&data)
+        let (_, reply) = Reply::parse(&data).unwrap(); // TODO : remove unwrap
+        reply.addresses
     }
 }
