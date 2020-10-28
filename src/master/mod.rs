@@ -7,6 +7,8 @@ use std::{
 
 mod reply;
 use reply::Reply;
+mod error;
+use error::*;
 
 const BUF_SIZE: usize = 2 << 20; // 1Mb
 
@@ -120,16 +122,15 @@ impl MasterServerQuery {
         Ok(buf)
     }
 
-    pub fn request(&self, region: Region, filters: &[Filter]) -> Vec<SocketAddrV4> {
-        let data = self
-            .raw_request(
-                0x31,
-                region as u8,
-                "0.0.0.0:0".to_string(), // TODO : recall many times in iterator to get all data
-                filters.iter().map(|f| format!("{}", f)).collect::<String>(),
-            )
-            .unwrap();
-        let (_, reply) = Reply::parse(&data).unwrap(); // TODO : remove unwrap
-        reply.addresses
+    pub fn request(&self, region: Region, filters: &[Filter]) -> QueryResult<Vec<SocketAddrV4>> {
+        let data = self.raw_request(
+            0x31,
+            region as u8,
+            "0.0.0.0:0".to_string(), // TODO : recall many times in iterator to get all data
+            filters.iter().map(|f| format!("{}", f)).collect::<String>(),
+        )?;
+
+        let (_, reply) = Reply::parse(&data)?;
+        Ok(reply.addresses)
     }
 }

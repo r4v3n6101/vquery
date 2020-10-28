@@ -9,6 +9,6 @@ fn print_master_server_list() {
     master
         .connect(ADDR.to_socket_addrs().unwrap().next().unwrap())
         .unwrap();
-    let ips = master.request(Region::All, &[]);
+    let ips = master.request(Region::All, &[]).unwrap();
     println!("{:?}", ips);
 }
