@@ -1,7 +1,8 @@
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Result as IOResult,
-    net::{SocketAddr, SocketAddrV4, UdpSocket},
+    iter::Iterator,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
     time::Duration,
 };
 
@@ -11,7 +12,7 @@ mod error;
 use error::*;
 
 const BUF_SIZE: usize = 2 << 20; // 1Mb
-
+#[derive(Copy, Clone)]
 pub enum Region {
     UsEastCost = 0x00,
     UsWestCost = 0x01,
@@ -122,15 +123,68 @@ impl MasterServerQuery {
         Ok(buf)
     }
 
-    pub fn request(&self, region: Region, filters: &[Filter]) -> QueryResult<Vec<SocketAddrV4>> {
+    pub fn request(
+        &self,
+        seed: &SocketAddrV4,
+        region: Region,
+        filters: &[Filter],
+    ) -> QueryResult<Vec<SocketAddrV4>> {
         let data = self.raw_request(
             0x31,
             region as u8,
-            "0.0.0.0:0".to_string(), // TODO : recall many times in iterator to get all data
+            seed.to_string(),
             filters.iter().map(|f| format!("{}", f)).collect::<String>(),
         )?;
 
         let (_, reply) = Reply::parse(&data)?;
         Ok(reply.addresses)
+    }
+
+    pub fn iter<'a>(&'a self, region: Region, filters: &'a [Filter<'a>]) -> MasterQueryIter<'a> {
+        MasterQueryIter::new(self, region, filters)
+    }
+}
+
+pub struct MasterQueryIter<'a> {
+    region: Region,
+    filters: &'a [Filter<'a>],
+    query: &'a MasterServerQuery,
+    buf: Vec<SocketAddrV4>,
+    index: usize,
+}
+
+impl<'a> MasterQueryIter<'a> {
+    fn new(query: &'a MasterServerQuery, region: Region, filters: &'a [Filter<'a>]) -> Self {
+        Self {
+            region,
+            filters,
+            query,
+            buf: vec![],
+            index: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for MasterQueryIter<'a> {
+    type Item = SocketAddrV4;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let nul_addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
+        let mut val = self.buf.get(self.index);
+
+        if val.is_none() {
+            let seed = self.buf.last().unwrap_or(&nul_addr);
+            if seed == &nul_addr {
+                self.index = 0;
+            } else {
+                self.index = 1;
+            }
+            let reply = self.query.request(seed, self.region, self.filters).unwrap();
+            self.buf.clear();
+            self.buf.extend_from_slice(&reply);
+            val = self.buf.get(self.index);
+        }
+        self.index += 1;
+        val.copied()
     }
 }
