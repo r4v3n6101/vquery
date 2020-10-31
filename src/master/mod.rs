@@ -41,9 +41,9 @@ pub enum Filter<'a> {
     NotAppid(&'a str),
     NoPlayers,
     Whitelisted,
-    //GameType(..),
-    //GameData(..),
-    //GameDataOr(..), TODO
+    GameType(&'a str),
+    GameDataAll(&'a str),
+    GameDataAny(&'a str),
     NameMatch(&'a str),
     VersionMatch(&'a str),
     CollapseAddrHash,
@@ -70,7 +70,9 @@ impl Display for Filter<'_> {
             Filter::NotAppid(appid) => write!(f, "\\napp\\{}", appid),
             Filter::NoPlayers => write!(f, "\\noplayers\\1"),
             Filter::Whitelisted => write!(f, "\\white\\1"),
-            // TODO
+            Filter::GameType(gtype) => write!(f, "\\gametype\\{}", gtype),
+            Filter::GameDataAll(gdata) => write!(f, "\\gamedata\\{}", gdata),
+            Filter::GameDataAny(gdata) => write!(f, "\\gamedataor\\{}", gdata),
             Filter::NameMatch(hostname) => write!(f, "\\name_match\\{}", hostname),
             Filter::VersionMatch(version) => write!(f, "\\version_match\\{}", version),
             Filter::CollapseAddrHash => write!(f, "\\collaspse_addr_hash\\1"),
