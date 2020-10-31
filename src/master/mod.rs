@@ -9,7 +9,7 @@ use std::{
 mod reply;
 use reply::Reply;
 mod error;
-use error::*;
+use error::QueryResult;
 
 const BUF_SIZE: usize = 2 << 20; // 1Mb
 #[derive(Copy, Clone)]
@@ -79,9 +79,9 @@ impl Display for Filter<'_> {
     }
 }
 
-pub struct MasterServerQuery(UdpSocket);
+pub struct ServersQuery(UdpSocket);
 
-impl MasterServerQuery {
+impl ServersQuery {
     pub fn bind(addr: SocketAddr) -> IOResult<Self> {
         UdpSocket::bind(addr).map(Self)
     }
@@ -148,13 +148,13 @@ impl MasterServerQuery {
 pub struct MasterQueryIter<'a> {
     region: Region,
     filters: &'a [Filter<'a>],
-    query: &'a MasterServerQuery,
+    query: &'a ServersQuery,
     buf: Vec<SocketAddrV4>,
     index: usize,
 }
 
 impl<'a> MasterQueryIter<'a> {
-    fn new(query: &'a MasterServerQuery, region: Region, filters: &'a [Filter<'a>]) -> Self {
+    fn new(query: &'a ServersQuery, region: Region, filters: &'a [Filter<'a>]) -> Self {
         Self {
             region,
             filters,
@@ -166,7 +166,7 @@ impl<'a> MasterQueryIter<'a> {
 }
 
 impl<'a> Iterator for MasterQueryIter<'a> {
-    type Item = SocketAddrV4;
+    type Item = QueryResult<SocketAddrV4>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let nul_addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
@@ -179,12 +179,17 @@ impl<'a> Iterator for MasterQueryIter<'a> {
             } else {
                 self.index = 1;
             }
-            let reply = self.query.request(seed, self.region, self.filters).unwrap();
-            self.buf.clear();
-            self.buf.extend_from_slice(&reply);
-            val = self.buf.get(self.index);
+            let reply = self.query.request(seed, self.region, self.filters);
+            match reply {
+                Ok(reply) => {
+                    self.buf.clear();
+                    self.buf.extend_from_slice(&reply);
+                    val = self.buf.get(self.index);
+                }
+                Err(err) => return Some(Err(err)),
+            }
         }
         self.index += 1;
-        val.copied()
+        val.copied().map(Ok)
     }
 }
