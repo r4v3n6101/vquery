@@ -18,4 +18,4 @@ let info = query.a2s_info_new().unwrap();
 - [x] **crc32**: Verify that data is correct using crc32 of decompressed data.
 - [ ] **documentation**: There're no docs absolutely!
 - [ ] **normal visibility of modules/structs/traits**: As for me, pub modifiers are bad located for now.
-- [ ] **master server query**: Not stable API for now!
+- [x] **master server query**: Seems it works correctly.
