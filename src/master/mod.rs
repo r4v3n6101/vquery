@@ -11,7 +11,8 @@ use reply::Reply;
 mod error;
 use error::QueryResult;
 
-const BUF_SIZE: usize = 2 << 20; // 1Mb
+const BUF_SIZE: usize = 1 << 20; // 1Mb
+
 #[derive(Copy, Clone)]
 pub enum Region {
     UsEastCost = 0x00,
