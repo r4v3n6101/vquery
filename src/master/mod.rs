@@ -26,32 +26,32 @@ pub enum Region {
     All = 0xFF,
 }
 
-pub enum Filter<'a> {
+pub enum Filter {
     Nor(Vec<Self>),
     Nand(Vec<Self>),
     Dedicated,
     Secure,
-    GameDir(&'a str),
-    Map(&'a str),
+    GameDir(String),
+    Map(String),
     Linux,
     NoPassword,
     NotEmpty,
     NotFull,
     Proxy,
-    Appid(&'a str),
-    NotAppid(&'a str),
+    Appid(String),
+    NotAppid(String),
     NoPlayers,
     Whitelisted,
-    GameType(&'a str),
-    GameDataAll(&'a str),
-    GameDataAny(&'a str),
-    NameMatch(&'a str),
-    VersionMatch(&'a str),
+    GameType(String),
+    GameDataAll(String),
+    GameDataAny(String),
+    NameMatch(String),
+    VersionMatch(String),
     CollapseAddrHash,
     GameAddr(SocketAddr),
 }
 
-impl Display for Filter<'_> {
+impl Display for Filter {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Filter::Nor(vec) => write!(f, "\\nor\\{}", vec.len())
@@ -143,21 +143,21 @@ impl ServersQuery {
         Ok(reply.addresses)
     }
 
-    pub fn iter<'a>(&'a self, region: Region, filters: &'a [Filter<'a>]) -> MasterQueryIter<'a> {
+    pub fn iter<'a>(&'a self, region: Region, filters: &'a [Filter]) -> MasterQueryIter<'a> {
         MasterQueryIter::new(self, region, filters)
     }
 }
 
 pub struct MasterQueryIter<'a> {
     region: Region,
-    filters: &'a [Filter<'a>],
+    filters: &'a [Filter],
     query: &'a ServersQuery,
     buf: Vec<SocketAddrV4>,
     index: usize,
 }
 
 impl<'a> MasterQueryIter<'a> {
-    fn new(query: &'a ServersQuery, region: Region, filters: &'a [Filter<'a>]) -> Self {
+    fn new(query: &'a ServersQuery, region: Region, filters: &'a [Filter]) -> Self {
         Self {
             region,
             filters,

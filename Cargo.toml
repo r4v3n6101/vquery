@@ -1,6 +1,6 @@
 [package]
 name = "vquery"
-version = "0.12.1"
+version = "0.13.0"
 authors = ["r4v3n6101 <raven6107@gmail.com>"]
 edition = "2018"
 
