@@ -178,7 +178,12 @@ impl<'a> Iterator for MasterQueryIter<'a> {
         if val.is_none() {
             let seed = self.buf.last().unwrap_or(&nul_addr);
             if seed == &nul_addr {
-                self.index = 0;
+                // If last element is nul_addr
+                if !self.buf.is_empty() {
+                    return None;
+                } else {
+                    self.index = 0;
+                }
             } else {
                 self.index = 1;
             }
