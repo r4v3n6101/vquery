@@ -1,12 +1,12 @@
 [package]
 name = "vquery"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["r4v3n6101 <raven6107@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 thiserror = "*"
-nom = "5.1.2"
+nom = "*"
 nom-derive = "*"
 bzip2 = "*"
 crc = "*"

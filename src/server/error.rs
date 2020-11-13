@@ -1,8 +1,8 @@
 use super::packet::error::Error as PacketError;
 use thiserror::Error;
 
-type NomError<'a> = nom::Err<(&'a [u8], nom::error::ErrorKind)>;
-type NomErrorOwned = nom::Err<(Vec<u8>, nom::error::ErrorKind)>;
+type NomError<'a> = nom::Err<nom::error::Error<&'a [u8]>>;
+type NomErrorOwned = nom::Err<nom::error::Error<Vec<u8>>>;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -14,7 +14,7 @@ pub enum Error {
 
 impl From<NomError<'_>> for Error {
     fn from(error: NomError<'_>) -> Self {
-        Error::A2SParse(error.to_owned())
+        Error::A2SParse(error.map(|e| nom::error::make_error(e.input.to_vec(), e.code)))
     }
 }
 

@@ -107,7 +107,7 @@ fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> PacketResult<Vec
     payloads.insert(init_packet.index, init_packet.payload);
     while payloads.len() < payloads.capacity() {
         let packet = read_raw(socket, init_packet.switch_size)?;
-        let (i, header) = nom::number::streaming::le_i32(&packet)?;
+        let (i, header) = nom::number::complete::le_i32(packet.as_ref())?;
         if header != -2 {
             return Err(PacketError::WrongHeader(header));
         }
@@ -143,7 +143,7 @@ fn read_multi<P: PacketParser>(i: &[u8], socket: &UdpSocket) -> PacketResult<Vec
 
 pub(crate) fn read_payload<P: PacketParser>(socket: &UdpSocket) -> PacketResult<Vec<u8>> {
     let packet = read_raw(socket, DEFAULT_PACKET_SIZE)?;
-    let (i, header) = nom::number::streaming::le_i32(&packet)?;
+    let (i, header) = nom::number::complete::le_i32(packet.as_ref())?;
     match header {
         -1 => Ok(i.to_vec()),
         -2 => read_multi::<P>(i, socket),

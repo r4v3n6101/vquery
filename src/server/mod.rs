@@ -139,7 +139,7 @@ impl<P: PacketParser> ValveQuery<P> {
 
         let mut slice = answer.as_slice();
         if let Ok((i, four_ff)) =
-            nom::number::streaming::le_u32::<(_, nom::error::ErrorKind)>(slice)
+            nom::number::complete::le_u32::<_, (_, nom::error::ErrorKind)>(slice)
         {
             if four_ff == 0xFFFF_FFFF {
                 // Undocumented: a2s_rules may start with four FF before header 0x45 (it's not single packet marker)

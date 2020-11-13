@@ -1,8 +1,8 @@
 use bzip2::Error as Bz2Error;
 use thiserror::Error;
 
-type NomError<'a> = nom::Err<(&'a [u8], nom::error::ErrorKind)>;
-type NomErrorOwned = nom::Err<(Vec<u8>, nom::error::ErrorKind)>;
+type NomError<'a> = nom::Err<nom::error::Error<&'a [u8]>>;
+type NomErrorOwned = nom::Err<nom::error::Error<Vec<u8>>>;
 
 #[derive(Debug)]
 pub struct MultiHeader {
@@ -31,7 +31,7 @@ pub enum Error {
 
 impl From<NomError<'_>> for Error {
     fn from(error: NomError<'_>) -> Self {
-        Error::Nom(error.to_owned())
+        Error::Nom(error.map(|e| nom::error::make_error(e.input.to_vec(), e.code)))
     }
 }
 
