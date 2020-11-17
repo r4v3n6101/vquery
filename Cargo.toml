@@ -5,8 +5,8 @@ authors = ["r4v3n6101 <raven6107@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-thiserror = "*"
-nom = "*"
-nom-derive = "*"
-bzip2 = "*"
-crc = "*"
+thiserror = "1.0.22"
+nom = "6.0.0"
+nom-derive = "0.7.0"
+bzip2 = "0.4.1"
+crc = "1.8.1"
