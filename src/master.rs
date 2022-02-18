@@ -125,10 +125,10 @@ impl ServerQuery {
             .with(many(socket))
             .parse(data)
             .map(|(data, _)| data)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid socket"))
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "couldn't parse response"))
     }
 
-    async fn raw_request(&self, socket: &UdpSocket, data: &[u8]) -> io::Result<Vec<u8>> {
+    async fn raw_request(socket: &UdpSocket, data: &[u8]) -> io::Result<Vec<u8>> {
         let mut buf = vec![0; BUF_SIZE];
 
         socket.send(data).await?;
@@ -144,8 +144,9 @@ impl ServerQuery {
         seed: &SocketAddrV4,
     ) -> io::Result<Vec<SocketAddrV4>> {
         let packet = Self::packet_data(self.region_code, &self.filter, seed.to_string().as_bytes());
-        let response = self.raw_request(socket, &packet).await?;
-        Self::parse_reply(&response)
+        let response = Self::raw_request(socket, &packet).await?;
+        let reply = Self::parse_reply(&response)?;
+        Ok(reply)
     }
 
     pub fn addresses(
