@@ -1,41 +1,23 @@
-use std::{
-    collections::HashSet,
-    net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs},
-};
-use vquery::master::*;
+use futures::{StreamExt, TryStreamExt};
+use std::{io, sync::Arc};
+use tokio::net::UdpSocket;
+use vquery::master::{Region, ServerQuery};
 
-const ADDR: &str = "hl2master.steampowered.com:27011";
+const MASTER_ADDR: &str = "hl2master.steampowered.com:27011";
 
-#[test]
-fn print_query_iter() {
-    let master = ServersQuery::bind("0.0.0.0:0".parse().unwrap()).unwrap();
-    master
-        .connect(ADDR.to_socket_addrs().unwrap().next().unwrap())
-        .unwrap();
+#[tokio::test]
+async fn test_take_500_addresses() -> io::Result<()> {
+    let socket = UdpSocket::bind("0.0.0.0:0").await?;
+    socket.connect(MASTER_ADDR).await?;
 
-    let ips: Vec<_> = master
-        .iter(Region::All, &[])
-        .take(1000)
-        .map(|e| e.unwrap())
-        .collect();
-    println!("{:?}", ips);
-}
+    let socket = Arc::new(socket);
+    let server_query = ServerQuery::new(Region::Europe, &[]);
 
-#[test]
-fn validate_query_iter() {
-    let nul_addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
-
-    let master = ServersQuery::bind("0.0.0.0:0".parse().unwrap()).unwrap();
-    master
-        .connect(ADDR.to_socket_addrs().unwrap().next().unwrap())
-        .unwrap();
-
-    let ips: Vec<_> = master
-        .iter(Region::All, &[])
-        .take(1000)
-        .map(|e| e.unwrap())
-        .collect();
-    let unique_ips = ips.iter().collect::<HashSet<_>>();
-    assert_eq!(ips.len(), unique_ips.len());
-    assert!(!unique_ips.contains(&nul_addr));
+    server_query
+        .addresses(socket)
+        .into_stream()
+        .take(500)
+        .for_each(|addr| async move { println!("{}", addr.unwrap().to_string()) })
+        .await;
+    Ok(())
 }
