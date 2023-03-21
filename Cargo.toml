@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 thiserror = "1.0.22"
 nom = "7.0.0"
-nom-derive = "0.7.0"
+nom-derive = "0.10.1"
 bzip2 = "0.4.1"
 crc = "1.8.1"
