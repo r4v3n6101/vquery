@@ -1,12 +1,7 @@
 [package]
 name = "vquery"
-version = "0.14.0"
+version = "0.1.0"
 authors = ["r4v3n6101 <raven6107@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-thiserror = "1.0.22"
-nom = "7.0.0"
-nom-derive = "0.7.0"
-bzip2 = "0.4.1"
-crc = "1.8.1"
