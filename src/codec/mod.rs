@@ -68,17 +68,17 @@ where
 
                         return self.inner.decode(&mut out);
                     } else {
+                        // All next packages will use new size
+                        self.frame_len = pheader.switch_size();
                         if self.frame_len < 4 {
                             self.frame_len = DEFAULT_FRAME_SIZE;
                             return Err(io::Error::new(
                                 io::ErrorKind::UnexpectedEof,
-                                "malformed packet_size field",
+                                "malformed frame_len field",
                             )
                             .into());
                         }
 
-                        // All next packages will use new size
-                        self.frame_len = pheader.switch_size();
                         continue;
                     }
                 }
